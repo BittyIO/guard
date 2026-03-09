@@ -45,10 +45,18 @@ $ forge snapshot
 $ anvil
 ```
 
-### Deploy
+### Deploy & Verify
 
 ```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
+$ forge script --broadcast -vvvv --rpc-url {rpc} --private-key {private-key} --etherscan-api-key {etherscan-api-key} script/WhiteList.s.sol:Deploy
+```
+
+```shell
+forge verify-contract \
+    --chain-id {chain-id} \
+    {contract-address} \
+    --etherscan-api-key {etherscan-api-key} \
+    src/WhiteList.sol:WhiteList
 ```
 
 ### Cast
