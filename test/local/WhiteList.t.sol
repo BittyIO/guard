@@ -13,6 +13,7 @@ contract WhiteListTest is Test {
     address public ammProvider;
     address public lendingProvider;
     address public stakingProvider;
+    address public intentProvider;
     MockERC20 public mockWETH;
     MockERC20 public mockWBTC;
     MockERC20 public mockUSDT;
@@ -22,12 +23,14 @@ contract WhiteListTest is Test {
     address[] public lendingProviders;
     address[] public stakingProviders;
     address[] public swapProviders;
+    address[] public intentProviders;
 
     function setUp() public {
         protocolOwner = makeAddr("protocolOwner");
         ammProvider = makeAddr("ammProvider");
         lendingProvider = makeAddr("lendingProvider");
         stakingProvider = makeAddr("stakingProvider");
+        intentProvider = makeAddr("intentProvider");
         mockWETH = new MockERC20("WETH", "WETH", 18);
         mockWBTC = new MockERC20("WBTC", "WBTC", 8);
         mockUSDT = new MockERC20("USDT", "USDT", 6);
@@ -47,6 +50,8 @@ contract WhiteListTest is Test {
         stakingProviders[0] = stakingProvider;
         swapProviders = new address[](1);
         swapProviders[0] = ammProvider;
+        intentProviders = new address[](1);
+        intentProviders[0] = intentProvider;
     }
 
     function test_AddWhiteListedAssets() public {
@@ -108,6 +113,22 @@ contract WhiteListTest is Test {
         vm.prank(protocolOwner);
         whiteList.addAMMProviders(swapProviders);
         assertTrue(whiteList.isAMMProviderWhiteListed(ammProvider));
+    }
+
+    function test_AddIntentProviders() public {
+        vm.prank(protocolOwner);
+        whiteList.addIntentProviders(intentProviders);
+        assertTrue(whiteList.isIntentProviderWhiteListed(intentProvider));
+    }
+
+    function test_DeprecateIntentProviders() public {
+        vm.prank(protocolOwner);
+        whiteList.addIntentProviders(intentProviders);
+        assertTrue(whiteList.isIntentProviderWhiteListed(intentProvider));
+        vm.prank(protocolOwner);
+        whiteList.deprecateIntentProviders(intentProviders);
+        assertFalse(whiteList.isIntentProviderWhiteListed(intentProvider));
+        assertTrue(whiteList.isIntentProviderDeprecated(intentProvider));
     }
 
     function test_RemoveAMMProvidersFailedWhenAllRemoved() public {
