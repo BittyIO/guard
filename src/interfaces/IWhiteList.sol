@@ -148,13 +148,21 @@ interface IWhiteList {
     function addIntentProviders(address[] memory intentProviderAddresses) external;
 
     /**
+     * @notice Check if an intent provider is white listed.
+     * @dev Check if an intent provider is white listed.
+     * @param intentProviderAddress The address of the intent provider.
+     * @return bool True if the intent provider is white listed, false otherwise.
+     */
+    function isIntentProviderWhiteListed(address intentProviderAddress) external view returns (bool);
+
+    /**
      * @notice Deprecate an intent provider from the WhiteList.
      * @dev Deprecate an intent provider from the WhiteList.
      *      A deprecated intent provider is only used for canceling trades, can not be used for executing trades anymore.
      * @param intentProviderAddresses The addresses of the intent providers.
      */
     function deprecateIntentProviders(address[] memory intentProviderAddresses) external;
-    
+
     /**
      * @notice Check if an intent provider is deprecated.
      * @dev Check if an intent provider is deprecated.

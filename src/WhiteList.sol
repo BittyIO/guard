@@ -188,6 +188,10 @@ contract WhiteList is IWhiteList, Initializable, Ownable {
         }
     }
 
+    function isIntentProviderWhiteListed(address intentProviderAddress) external view override returns (bool) {
+        return intentProviders[intentProviderAddress];
+    }
+
     function deprecateIntentProviders(address[] memory intentProviderAddresses) external override onlyOwner {
         for (uint256 i = 0; i < intentProviderAddresses.length; i++) {
             if (intentProviderAddresses[i] != address(0)) {
@@ -200,5 +204,4 @@ contract WhiteList is IWhiteList, Initializable, Ownable {
     function isIntentProviderDeprecated(address intentProviderAddress) external view override returns (bool) {
         return deprecatedIntentProviders[intentProviderAddress];
     }
-
 }
