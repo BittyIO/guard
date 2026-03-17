@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: CC0-1.0
-pragma solidity ^0.8.27;
+pragma solidity ^0.8.34;
 
 import "forge-std/console.sol";
 import {Script} from "forge-std/Script.sol";
@@ -18,7 +18,7 @@ interface ImmutableCreate2Factory {
 contract Deploy is Script {
     ImmutableCreate2Factory immutable factory = ImmutableCreate2Factory(0x0000000000FFe8B47B3e2130213B802212439497);
 
-    bytes32 salt = 0x00000000000000000000000000000000000000006d2ac2e535da400040cd2f2f;
+    bytes32 salt = 0x0000000000000000000000000000000000000000af352472124f60001c4429be;
 
     function run() external {
         vm.startBroadcast();
