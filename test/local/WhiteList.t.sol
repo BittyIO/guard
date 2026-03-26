@@ -22,7 +22,7 @@ contract WhiteListTest is Test {
     address[] public stableCoins;
     address[] public lendingProviders;
     address[] public stakingProviders;
-    address[] public swapProviders;
+    address[] public ammProviders;
     address[] public intentProviders;
 
     function setUp() public {
@@ -48,8 +48,8 @@ contract WhiteListTest is Test {
         lendingProviders[0] = lendingProvider;
         stakingProviders = new address[](1);
         stakingProviders[0] = stakingProvider;
-        swapProviders = new address[](1);
-        swapProviders[0] = ammProvider;
+        ammProviders = new address[](1);
+        ammProviders[0] = ammProvider;
         intentProviders = new address[](1);
         intentProviders[0] = intentProvider;
     }
@@ -111,7 +111,7 @@ contract WhiteListTest is Test {
 
     function test_AddAMMProviders() public {
         vm.prank(protocolOwner);
-        whiteList.addAMMProviders(swapProviders);
+        whiteList.addAMMProviders(ammProviders);
         assertTrue(whiteList.isAMMProviderWhiteListed(ammProvider));
     }
 
@@ -132,23 +132,23 @@ contract WhiteListTest is Test {
     }
 
     function test_RemoveAMMProvidersFailedWhenAllRemoved() public {
-        address[] memory swapProviderAddresses = new address[](1);
-        swapProviderAddresses[0] = ammProvider;
+        address[] memory ammProviderAddresses = new address[](1);
+        ammProviderAddresses[0] = ammProvider;
         vm.prank(protocolOwner);
         vm.expectRevert(AMMProviderShouldNotBeAllRemoved.selector);
-        whiteList.removeAMMProviders(swapProviderAddresses);
+        whiteList.removeAMMProviders(ammProviderAddresses);
     }
 
     function test_RemoveAMMProvidersShouldBeFine() public {
-        address[] memory swapProviderAddresses = new address[](1);
-        swapProviderAddresses[0] = ammProvider;
+        address[] memory ammProviderAddresses = new address[](1);
+        ammProviderAddresses[0] = ammProvider;
         address[] memory invalidAMMProviders = new address[](1);
         address invalidAMMProvider = makeAddr("InvalidAMMProvider");
         invalidAMMProviders[0] = invalidAMMProvider;
         vm.prank(protocolOwner);
         whiteList.addAMMProviders(invalidAMMProviders);
         vm.prank(protocolOwner);
-        whiteList.addAMMProviders(swapProviderAddresses);
+        whiteList.addAMMProviders(ammProviderAddresses);
         vm.prank(protocolOwner);
         whiteList.removeAMMProviders(invalidAMMProviders);
         assertTrue(whiteList.isAMMProviderWhiteListed(ammProvider));
@@ -167,6 +167,21 @@ contract WhiteListTest is Test {
         whiteList.addLendingProviders(lendingProviders);
         assertTrue(whiteList.isLendingProviderWhiteListed(lendingProvider));
         assertFalse(whiteList.isLendingProviderDeprecated(lendingProvider));
+    }
+
+    function test_AddIntentProvidersClearsDeprecatedFlag() public {
+        vm.prank(protocolOwner);
+        whiteList.addIntentProviders(intentProviders);
+        assertTrue(whiteList.isIntentProviderWhiteListed(intentProvider));
+        assertFalse(whiteList.isIntentProviderDeprecated(intentProvider));
+        vm.prank(protocolOwner);
+        whiteList.deprecateIntentProviders(intentProviders);
+        assertFalse(whiteList.isIntentProviderWhiteListed(intentProvider));
+        assertTrue(whiteList.isIntentProviderDeprecated(intentProvider));
+        vm.prank(protocolOwner);
+        whiteList.addIntentProviders(intentProviders);
+        assertTrue(whiteList.isIntentProviderWhiteListed(intentProvider));
+        assertFalse(whiteList.isIntentProviderDeprecated(intentProvider));
     }
 
     function test_GetWhiteListInitCode() public pure {
