@@ -184,6 +184,7 @@ contract WhiteList is IWhiteList, Initializable, Ownable {
         for (uint256 i = 0; i < intentProviderAddresses.length; i++) {
             if (intentProviderAddresses[i] != address(0)) {
                 intentProviders[intentProviderAddresses[i]] = true;
+                deprecatedIntentProviders[intentProviderAddresses[i]] = false;
             }
         }
     }

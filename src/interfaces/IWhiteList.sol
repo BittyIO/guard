@@ -121,24 +121,24 @@ interface IWhiteList {
     /**
      * @notice Add a swap provider to the TurtumVault.
      * @dev Add a swap provider to the TurtumVault.
-     * @param swapProviderAddresses The addresses of the swap providers.
+     * @param ammProviderAddresses The addresses of the swap providers.
      */
-    function addAMMProviders(address[] memory swapProviderAddresses) external;
+    function addAMMProviders(address[] memory ammProviderAddresses) external;
 
     /**
      * @notice Remove a swap provider from the TurtumVault.
      * @dev Remove a swap provider from the TurtumVault.
-     * @param swapProviderAddresses The addresses of the swap providers.
+     * @param ammProviderAddresses The addresses of the swap providers.
      */
-    function removeAMMProviders(address[] memory swapProviderAddresses) external;
+    function removeAMMProviders(address[] memory ammProviderAddresses) external;
 
     /**
      * @notice Check if a swap provider is white listed.
      * @dev Check if a swap provider is white listed.
-     * @param swapProviderAddress The address of the swap provider.
+     * @param ammProviderAddress The address of the swap provider.
      * @return bool True if the swap provider is white listed, false otherwise.
      */
-    function isAMMProviderWhiteListed(address swapProviderAddress) external view returns (bool);
+    function isAMMProviderWhiteListed(address ammProviderAddress) external view returns (bool);
 
     /**
      * @notice Add an intent provider to the WhiteList.
