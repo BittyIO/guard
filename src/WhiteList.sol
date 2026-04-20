@@ -2,13 +2,33 @@
 pragma solidity ^0.8.34;
 
 import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
-import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
+import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessControl.sol";
 import {IWhiteList} from "./interfaces/IWhiteList.sol";
 import {AMMProviderShouldNotBeAllRemoved} from "./interfaces/IWhiteList.sol";
 import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 
-contract WhiteList is IWhiteList, Initializable, Ownable {
+/**
+ * @title WhiteList
+ * @notice Registry of allowed assets and protocol providers.
+ * @dev Mutations are gated by {AccessControl} roles. `DEFAULT_ADMIN_ROLE` (assigned to `tx.origin` at deploy)
+ *      can grant or revoke manager roles. Each category has its own manager role so operations can be split
+ *      across addresses. For a timelocked admin, grant `DEFAULT_ADMIN_ROLE` to a `TimelockController`.
+ */
+contract WhiteList is IWhiteList, Initializable, AccessControl {
     using EnumerableSet for EnumerableSet.AddressSet;
+
+    /// @notice Role allowed to add/remove assets.
+    bytes32 public constant ASSET_MANAGER_ROLE = keccak256("ASSET_MANAGER_ROLE");
+    /// @notice Role allowed to add/remove stable coins.
+    bytes32 public constant STABLE_COIN_MANAGER_ROLE = keccak256("STABLE_COIN_MANAGER_ROLE");
+    /// @notice Role allowed to add/deprecate lending providers.
+    bytes32 public constant LENDING_MANAGER_ROLE = keccak256("LENDING_MANAGER_ROLE");
+    /// @notice Role allowed to add/deprecate staking providers.
+    bytes32 public constant STAKING_MANAGER_ROLE = keccak256("STAKING_MANAGER_ROLE");
+    /// @notice Role allowed to add/remove AMM providers.
+    bytes32 public constant AMM_MANAGER_ROLE = keccak256("AMM_MANAGER_ROLE");
+    /// @notice Role allowed to add/deprecate intent providers.
+    bytes32 public constant INTENT_MANAGER_ROLE = keccak256("INTENT_MANAGER_ROLE");
 
     mapping(address => bool) public assets;
     mapping(address => bool) public stableCoins;
@@ -22,7 +42,7 @@ contract WhiteList is IWhiteList, Initializable, Ownable {
     EnumerableSet.AddressSet internal _ammProviders;
 
     constructor() {
-        _transferOwnership(tx.origin);
+        _grantRole(DEFAULT_ADMIN_ROLE, tx.origin);
     }
 
     function initialize(
@@ -32,7 +52,7 @@ contract WhiteList is IWhiteList, Initializable, Ownable {
         address[] memory stakingProviders_,
         address[] memory ammProviders_,
         address[] memory intentProviders_
-    ) public initializer {
+    ) public initializer onlyRole(DEFAULT_ADMIN_ROLE) {
         _addAssets(assets_);
         _addStableCoins(stableCoins_);
         _addLendingProviders(lendingProviders_);
@@ -41,7 +61,7 @@ contract WhiteList is IWhiteList, Initializable, Ownable {
         _addIntentProviders(intentProviders_);
     }
 
-    function addAssets(address[] memory assetAddresses) external override onlyOwner {
+    function addAssets(address[] memory assetAddresses) external override onlyRole(ASSET_MANAGER_ROLE) {
         _addAssets(assetAddresses);
     }
 
@@ -53,7 +73,7 @@ contract WhiteList is IWhiteList, Initializable, Ownable {
         }
     }
 
-    function removeAssets(address[] memory assetAddresses) external override onlyOwner {
+    function removeAssets(address[] memory assetAddresses) external override onlyRole(ASSET_MANAGER_ROLE) {
         for (uint256 i = 0; i < assetAddresses.length; i++) {
             if (assetAddresses[i] != address(0)) {
                 assets[assetAddresses[i]] = false;
@@ -65,7 +85,7 @@ contract WhiteList is IWhiteList, Initializable, Ownable {
         return assets[assetAddress];
     }
 
-    function addStableCoins(address[] memory stableCoinAddresses) external override onlyOwner {
+    function addStableCoins(address[] memory stableCoinAddresses) external override onlyRole(STABLE_COIN_MANAGER_ROLE) {
         _addStableCoins(stableCoinAddresses);
     }
 
@@ -77,7 +97,11 @@ contract WhiteList is IWhiteList, Initializable, Ownable {
         }
     }
 
-    function removeStableCoins(address[] memory stableCoinAddresses) external override onlyOwner {
+    function removeStableCoins(address[] memory stableCoinAddresses)
+        external
+        override
+        onlyRole(STABLE_COIN_MANAGER_ROLE)
+    {
         for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
             if (stableCoinAddresses[i] != address(0)) {
                 stableCoins[stableCoinAddresses[i]] = false;
@@ -89,7 +113,11 @@ contract WhiteList is IWhiteList, Initializable, Ownable {
         return stableCoins[stableCoinAddress];
     }
 
-    function addLendingProviders(address[] memory lendingProviderAddresses) external override onlyOwner {
+    function addLendingProviders(address[] memory lendingProviderAddresses)
+        external
+        override
+        onlyRole(LENDING_MANAGER_ROLE)
+    {
         _addLendingProviders(lendingProviderAddresses);
     }
 
@@ -102,7 +130,11 @@ contract WhiteList is IWhiteList, Initializable, Ownable {
         }
     }
 
-    function deprecateLendingProviders(address[] memory lendingProviderAddresses) external override onlyOwner {
+    function deprecateLendingProviders(address[] memory lendingProviderAddresses)
+        external
+        override
+        onlyRole(LENDING_MANAGER_ROLE)
+    {
         for (uint256 i = 0; i < lendingProviderAddresses.length; i++) {
             if (lendingProviderAddresses[i] != address(0)) {
                 lendingProviders[lendingProviderAddresses[i]] = false;
@@ -119,7 +151,11 @@ contract WhiteList is IWhiteList, Initializable, Ownable {
         return deprecatedLendingProviders[lendingProviderAddress];
     }
 
-    function addStakingProviders(address[] memory stakingProviderAddresses) external override onlyOwner {
+    function addStakingProviders(address[] memory stakingProviderAddresses)
+        external
+        override
+        onlyRole(STAKING_MANAGER_ROLE)
+    {
         _addStakingProviders(stakingProviderAddresses);
     }
 
@@ -140,7 +176,11 @@ contract WhiteList is IWhiteList, Initializable, Ownable {
         return deprecatedStakingProviders[stakingProviderAddress];
     }
 
-    function deprecateStakingProviders(address[] memory stakingProviderAddress) external override onlyOwner {
+    function deprecateStakingProviders(address[] memory stakingProviderAddress)
+        external
+        override
+        onlyRole(STAKING_MANAGER_ROLE)
+    {
         for (uint256 i = 0; i < stakingProviderAddress.length; i++) {
             if (stakingProviderAddress[i] != address(0)) {
                 stakingProviders[stakingProviderAddress[i]] = false;
@@ -149,7 +189,7 @@ contract WhiteList is IWhiteList, Initializable, Ownable {
         }
     }
 
-    function addAMMProviders(address[] memory ammProviderAddresses) external override onlyOwner {
+    function addAMMProviders(address[] memory ammProviderAddresses) external override onlyRole(AMM_MANAGER_ROLE) {
         _addAMMProviders(ammProviderAddresses);
     }
 
@@ -161,7 +201,7 @@ contract WhiteList is IWhiteList, Initializable, Ownable {
         }
     }
 
-    function removeAMMProviders(address[] memory ammProviderAddresses) external override onlyOwner {
+    function removeAMMProviders(address[] memory ammProviderAddresses) external override onlyRole(AMM_MANAGER_ROLE) {
         for (uint256 i = 0; i < ammProviderAddresses.length; i++) {
             if (ammProviderAddresses[i] != address(0)) {
                 _ammProviders.remove(ammProviderAddresses[i]);
@@ -176,7 +216,11 @@ contract WhiteList is IWhiteList, Initializable, Ownable {
         return _ammProviders.contains(ammProviderAddress);
     }
 
-    function addIntentProviders(address[] memory intentProviderAddresses) external override onlyOwner {
+    function addIntentProviders(address[] memory intentProviderAddresses)
+        external
+        override
+        onlyRole(INTENT_MANAGER_ROLE)
+    {
         _addIntentProviders(intentProviderAddresses);
     }
 
@@ -193,7 +237,11 @@ contract WhiteList is IWhiteList, Initializable, Ownable {
         return intentProviders[intentProviderAddress];
     }
 
-    function deprecateIntentProviders(address[] memory intentProviderAddresses) external override onlyOwner {
+    function deprecateIntentProviders(address[] memory intentProviderAddresses)
+        external
+        override
+        onlyRole(INTENT_MANAGER_ROLE)
+    {
         for (uint256 i = 0; i < intentProviderAddresses.length; i++) {
             if (intentProviderAddresses[i] != address(0)) {
                 intentProviders[intentProviderAddresses[i]] = false;
