@@ -35,9 +35,19 @@ contract WhiteListTest is Test {
         mockWBTC = new MockERC20("WBTC", "WBTC", 8);
         mockUSDT = new MockERC20("USDT", "USDT", 6);
         mockUSDC = new MockERC20("USDC", "USDC", 6);
+        // `WhiteList` grants `DEFAULT_ADMIN_ROLE` to `tx.origin`; align origin with a fixed admin for stable tests.
+        address deployAdmin = makeAddr("deployAdmin");
+        vm.startPrank(deployAdmin, deployAdmin);
         whiteList = new WhiteList();
-        vm.prank(tx.origin);
-        whiteList.transferOwnership(protocolOwner);
+        vm.stopPrank();
+        vm.startPrank(deployAdmin);
+        whiteList.grantRole(whiteList.ASSET_MANAGER_ROLE(), protocolOwner);
+        whiteList.grantRole(whiteList.STABLE_COIN_MANAGER_ROLE(), protocolOwner);
+        whiteList.grantRole(whiteList.LENDING_MANAGER_ROLE(), protocolOwner);
+        whiteList.grantRole(whiteList.STAKING_MANAGER_ROLE(), protocolOwner);
+        whiteList.grantRole(whiteList.AMM_MANAGER_ROLE(), protocolOwner);
+        whiteList.grantRole(whiteList.INTENT_MANAGER_ROLE(), protocolOwner);
+        vm.stopPrank();
         assets = new address[](2);
         assets[0] = address(mockWETH);
         assets[1] = address(mockWBTC);
