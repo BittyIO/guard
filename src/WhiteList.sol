@@ -27,8 +27,6 @@ contract WhiteList is IWhiteList, Initializable, AccessControl {
     bytes32 public constant STAKING_MANAGER_ROLE = keccak256("STAKING_MANAGER_ROLE");
     /// @notice Role allowed to add/remove AMM providers.
     bytes32 public constant AMM_MANAGER_ROLE = keccak256("AMM_MANAGER_ROLE");
-    /// @notice Role allowed to add/deprecate intent providers.
-    bytes32 public constant INTENT_MANAGER_ROLE = keccak256("INTENT_MANAGER_ROLE");
 
     mapping(address => bool) public assets;
     mapping(address => bool) public stableCoins;
@@ -36,8 +34,6 @@ contract WhiteList is IWhiteList, Initializable, AccessControl {
     mapping(address => bool) public deprecatedLendingProviders;
     mapping(address => bool) public stakingProviders;
     mapping(address => bool) public deprecatedStakingProviders;
-    mapping(address => bool) public intentProviders;
-    mapping(address => bool) public deprecatedIntentProviders;
 
     EnumerableSet.AddressSet internal _ammProviders;
 
@@ -50,15 +46,13 @@ contract WhiteList is IWhiteList, Initializable, AccessControl {
         address[] memory stableCoins_,
         address[] memory lendingProviders_,
         address[] memory stakingProviders_,
-        address[] memory ammProviders_,
-        address[] memory intentProviders_
+        address[] memory ammProviders_
     ) public initializer onlyRole(DEFAULT_ADMIN_ROLE) {
         _addAssets(assets_);
         _addStableCoins(stableCoins_);
         _addLendingProviders(lendingProviders_);
         _addStakingProviders(stakingProviders_);
         _addAMMProviders(ammProviders_);
-        _addIntentProviders(intentProviders_);
     }
 
     function addAssets(address[] memory assetAddresses) external override onlyRole(ASSET_MANAGER_ROLE) {
@@ -214,43 +208,5 @@ contract WhiteList is IWhiteList, Initializable, AccessControl {
 
     function isAMMProviderWhiteListed(address ammProviderAddress) external view override returns (bool) {
         return _ammProviders.contains(ammProviderAddress);
-    }
-
-    function addIntentProviders(address[] memory intentProviderAddresses)
-        external
-        override
-        onlyRole(INTENT_MANAGER_ROLE)
-    {
-        _addIntentProviders(intentProviderAddresses);
-    }
-
-    function _addIntentProviders(address[] memory intentProviderAddresses) internal {
-        for (uint256 i = 0; i < intentProviderAddresses.length; i++) {
-            if (intentProviderAddresses[i] != address(0)) {
-                intentProviders[intentProviderAddresses[i]] = true;
-                deprecatedIntentProviders[intentProviderAddresses[i]] = false;
-            }
-        }
-    }
-
-    function isIntentProviderWhiteListed(address intentProviderAddress) external view override returns (bool) {
-        return intentProviders[intentProviderAddress];
-    }
-
-    function deprecateIntentProviders(address[] memory intentProviderAddresses)
-        external
-        override
-        onlyRole(INTENT_MANAGER_ROLE)
-    {
-        for (uint256 i = 0; i < intentProviderAddresses.length; i++) {
-            if (intentProviderAddresses[i] != address(0)) {
-                intentProviders[intentProviderAddresses[i]] = false;
-                deprecatedIntentProviders[intentProviderAddresses[i]] = true;
-            }
-        }
-    }
-
-    function isIntentProviderDeprecated(address intentProviderAddress) external view override returns (bool) {
-        return deprecatedIntentProviders[intentProviderAddress];
     }
 }

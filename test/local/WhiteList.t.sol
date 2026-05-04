@@ -13,7 +13,6 @@ contract WhiteListTest is Test {
     address public ammProvider;
     address public lendingProvider;
     address public stakingProvider;
-    address public intentProvider;
     MockERC20 public mockWETH;
     MockERC20 public mockWBTC;
     MockERC20 public mockUSDT;
@@ -23,14 +22,12 @@ contract WhiteListTest is Test {
     address[] public lendingProviders;
     address[] public stakingProviders;
     address[] public ammProviders;
-    address[] public intentProviders;
 
     function setUp() public {
         protocolOwner = makeAddr("protocolOwner");
         ammProvider = makeAddr("ammProvider");
         lendingProvider = makeAddr("lendingProvider");
         stakingProvider = makeAddr("stakingProvider");
-        intentProvider = makeAddr("intentProvider");
         mockWETH = new MockERC20("WETH", "WETH", 18);
         mockWBTC = new MockERC20("WBTC", "WBTC", 8);
         mockUSDT = new MockERC20("USDT", "USDT", 6);
@@ -46,7 +43,6 @@ contract WhiteListTest is Test {
         whiteList.grantRole(whiteList.LENDING_MANAGER_ROLE(), protocolOwner);
         whiteList.grantRole(whiteList.STAKING_MANAGER_ROLE(), protocolOwner);
         whiteList.grantRole(whiteList.AMM_MANAGER_ROLE(), protocolOwner);
-        whiteList.grantRole(whiteList.INTENT_MANAGER_ROLE(), protocolOwner);
         vm.stopPrank();
         assets = new address[](2);
         assets[0] = address(mockWETH);
@@ -60,8 +56,6 @@ contract WhiteListTest is Test {
         stakingProviders[0] = stakingProvider;
         ammProviders = new address[](1);
         ammProviders[0] = ammProvider;
-        intentProviders = new address[](1);
-        intentProviders[0] = intentProvider;
     }
 
     function test_AddWhiteListedAssets() public {
@@ -125,22 +119,6 @@ contract WhiteListTest is Test {
         assertTrue(whiteList.isAMMProviderWhiteListed(ammProvider));
     }
 
-    function test_AddIntentProviders() public {
-        vm.prank(protocolOwner);
-        whiteList.addIntentProviders(intentProviders);
-        assertTrue(whiteList.isIntentProviderWhiteListed(intentProvider));
-    }
-
-    function test_DeprecateIntentProviders() public {
-        vm.prank(protocolOwner);
-        whiteList.addIntentProviders(intentProviders);
-        assertTrue(whiteList.isIntentProviderWhiteListed(intentProvider));
-        vm.prank(protocolOwner);
-        whiteList.deprecateIntentProviders(intentProviders);
-        assertFalse(whiteList.isIntentProviderWhiteListed(intentProvider));
-        assertTrue(whiteList.isIntentProviderDeprecated(intentProvider));
-    }
-
     function test_RemoveAMMProvidersFailedWhenAllRemoved() public {
         address[] memory ammProviderAddresses = new address[](1);
         ammProviderAddresses[0] = ammProvider;
@@ -177,21 +155,6 @@ contract WhiteListTest is Test {
         whiteList.addLendingProviders(lendingProviders);
         assertTrue(whiteList.isLendingProviderWhiteListed(lendingProvider));
         assertFalse(whiteList.isLendingProviderDeprecated(lendingProvider));
-    }
-
-    function test_AddIntentProvidersClearsDeprecatedFlag() public {
-        vm.prank(protocolOwner);
-        whiteList.addIntentProviders(intentProviders);
-        assertTrue(whiteList.isIntentProviderWhiteListed(intentProvider));
-        assertFalse(whiteList.isIntentProviderDeprecated(intentProvider));
-        vm.prank(protocolOwner);
-        whiteList.deprecateIntentProviders(intentProviders);
-        assertFalse(whiteList.isIntentProviderWhiteListed(intentProvider));
-        assertTrue(whiteList.isIntentProviderDeprecated(intentProvider));
-        vm.prank(protocolOwner);
-        whiteList.addIntentProviders(intentProviders);
-        assertTrue(whiteList.isIntentProviderWhiteListed(intentProvider));
-        assertFalse(whiteList.isIntentProviderDeprecated(intentProvider));
     }
 
     function test_GetWhiteListInitCode() public pure {
