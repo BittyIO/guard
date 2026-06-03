@@ -48,7 +48,7 @@ $ anvil
 ### Deploy & Verify
 
 ```shell
-$ forge script --broadcast -vvvv --rpc-url {rpc} --private-key {private-key} --etherscan-api-key {etherscan-api-key} script/WhiteList.s.sol:Deploy
+$ forge script --broadcast -vvvv --rpc-url {rpc} --private-key {private-key} --etherscan-api-key {etherscan-api-key} script/BittyRegistry.s.sol:Deploy
 ```
 
 ```shell
@@ -56,7 +56,7 @@ forge verify-contract \
     --chain-id {chain-id} \
     {contract-address} \
     --etherscan-api-key {etherscan-api-key} \
-    src/WhiteList.sol:WhiteList
+    src/BittyRegistry.sol:BittyRegistry
 ```
 
 ### Cast
