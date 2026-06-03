@@ -27,9 +27,10 @@ contract Deploy is DeployScript {
         address bittyRegistryAddress = factory.safeCreate2(salt, initCode);
         BittyRegistry bittyRegistry = BittyRegistry(bittyRegistryAddress);
 
-        address[] memory assets = new address[](2);
+        address[] memory assets = new address[](3);
         assets[0] = getAddress("WETH_AAVE");
-        assets[1] = getAddress("WBTC");
+        assets[1] = getAddress("WETH_UNI");
+        assets[2] = getAddress("WBTC");
 
         address[] memory stableCoins = new address[](2);
         stableCoins[0] = getAddress("USDT");
