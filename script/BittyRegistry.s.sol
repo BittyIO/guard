@@ -40,6 +40,6 @@ contract Deploy is DeployScript {
 
         console2.log("BittyRegistry deployed at", address(bittyRegistry));
 
-        saveAddress("BITY_REGISTRY", address(bittyRegistry));
+        saveAddress("BITTY_REGISTRY", address(bittyRegistry));
     }
 }
