@@ -9,7 +9,7 @@ error Deprecated();
  * @title Manage the registered assets and protocols.
  * @dev Manage the registered assets and protocols by Bitty.
  */
-interface IRegistry {
+interface IGuard {
     /**
      * @notice Add a registered asset to Bitty.
      * @dev Add a registered asset to Bitty.
@@ -119,6 +119,37 @@ interface IRegistry {
     function isStakingProtocolDeprecated(address stakingProtocolAddress) external view returns (bool);
 
     /**
+     * @notice Add an intent protocol to Bitty.
+     * @dev Add an intent protocol to Bitty.
+     * @param intentProtocolAddresses The addresses of the intent protocols.
+     */
+    function addIntentProtocols(address[] memory intentProtocolAddresses) external;
+
+    /**
+     * @notice Check if an intent protocol is registered.
+     * @dev Check if an intent protocol is registered.
+     * @param intentProtocolAddress The address of the intent protocol.
+     * @return bool True if the intent protocol is registered, false otherwise.
+     */
+    function isIntentProtocolRegistered(address intentProtocolAddress) external view returns (bool);
+
+    /**
+     * @notice Deprecate an intent protocol from Bitty.
+     * @dev Deprecate an intent protocol from Bitty.
+     *      A deprecated intent protocol is only used for canceling trades, can not be used for executing trades anymore.
+     * @param intentProtocolAddresses The addresses of the intent protocols.
+     */
+    function deprecateIntentProtocols(address[] memory intentProtocolAddresses) external;
+
+    /**
+     * @notice Check if an intent protocol is deprecated.
+     * @dev Check if an intent protocol is deprecated.
+     * @param intentProtocolAddress The address of the intent protocol.
+     * @return bool True if the intent protocol is deprecated, false otherwise.
+     */
+    function isIntentProtocolDeprecated(address intentProtocolAddress) external view returns (bool);
+
+    /**
      * @notice Add a swap protocol to Bitty.
      * @dev Add a swap protocol to Bitty.
      * @param ammProtocolAddresses The addresses of the swap protocols.
@@ -139,4 +170,46 @@ interface IRegistry {
      * @return bool True if the swap protocol is registered, false otherwise.
      */
     function isAMMProtocolRegistered(address ammProtocolAddress) external view returns (bool);
+
+    /**
+     * @notice Get the registered assets.
+     * @dev Get the registered assets.
+     * @return addresses The addresses of the registered assets.
+     */
+    function getAssets() external view returns (address[] memory addresses);
+
+    /**
+     * @notice Get the registered stable coins.
+     * @dev Get the registered stable coins.
+     * @return addresses The addresses of the registered stable coins.
+     */
+    function getStableCoins() external view returns (address[] memory addresses);
+
+    /**
+     * @notice Get the registered AMM protocols.
+     * @dev Get the registered AMM protocols.
+     * @return addresses The addresses of the registered AMM protocols.
+     */
+    function getAMMProtocols() external view returns (address[] memory addresses);
+
+    /**
+     * @notice Get the registered lending protocols.
+     * @dev Get the registered lending protocols.
+     * @return addresses The addresses of the registered lending protocols.
+     */
+    function getLendingProtocols() external view returns (address[] memory addresses);
+
+    /**
+     * @notice Get the registered staking protocols.
+     * @dev Get the registered staking protocols.
+     * @return addresses The addresses of the registered staking protocols.
+     */
+    function getStakingProtocols() external view returns (address[] memory addresses);
+
+    /**
+     * @notice Get the registered intent protocols.
+     * @dev Get the registered intent protocols.
+     * @return addresses The addresses of the registered intent protocols.
+     */
+    function getIntentProtocols() external view returns (address[] memory addresses);
 }

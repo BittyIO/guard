@@ -3,18 +3,18 @@ pragma solidity ^0.8.34;
 
 import {Initializable} from "openzeppelin-contracts/contracts/proxy/utils/Initializable.sol";
 import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessControl.sol";
-import {IRegistry} from "./interfaces/IRegistry.sol";
-import {AMMProtocolShouldNotBeAllRemoved} from "./interfaces/IRegistry.sol";
+import {IGuard} from "./interfaces/IGuard.sol";
+import {AMMProtocolShouldNotBeAllRemoved} from "./interfaces/IGuard.sol";
 import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 
 /**
- * @title BittyRegistry
- * @notice Registry of allowed assets and protocols for Bitty.
+ * @title BittyGuard
+ * @notice Guard of allowed assets and protocols for Bitty.
  * @dev Mutations are gated by {AccessControl} roles. `DEFAULT_ADMIN_ROLE` (assigned to `tx.origin` at deploy)
  *      can grant or revoke manager roles. Each category has its own manager role so operations can be split
  *      across addresses. For a timelocked admin, grant `DEFAULT_ADMIN_ROLE` to a `TimelockController`.
  */
-contract BittyRegistry is IRegistry, Initializable, AccessControl {
+contract BittyGuard is IGuard, Initializable, AccessControl {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     /// @notice Role allowed to add/remove assets.
@@ -27,18 +27,28 @@ contract BittyRegistry is IRegistry, Initializable, AccessControl {
     bytes32 public constant STAKING_MANAGER_ROLE = keccak256("STAKING_MANAGER_ROLE");
     /// @notice Role allowed to add/remove AMM protocols.
     bytes32 public constant AMM_MANAGER_ROLE = keccak256("AMM_MANAGER_ROLE");
+    /// @notice Role allowed to add/deprecate intent protocols.
+    bytes32 public constant INTENT_MANAGER_ROLE = keccak256("INTENT_MANAGER_ROLE");
 
-    mapping(address => bool) public assets;
-    mapping(address => bool) public stableCoins;
-    mapping(address => bool) public lendingProtocols;
     mapping(address => bool) public deprecatedLendingProtocols;
-    mapping(address => bool) public stakingProtocols;
     mapping(address => bool) public deprecatedStakingProtocols;
+    mapping(address => bool) public deprecatedIntentProtocols;
 
+    EnumerableSet.AddressSet internal _assets;
+    EnumerableSet.AddressSet internal _stableCoins;
+    EnumerableSet.AddressSet internal _lendingProtocols;
+    EnumerableSet.AddressSet internal _stakingProtocols;
     EnumerableSet.AddressSet internal _ammProtocols;
+    EnumerableSet.AddressSet internal _intentProtocols;
 
     constructor() {
         _grantRole(DEFAULT_ADMIN_ROLE, tx.origin);
+        _grantRole(ASSET_MANAGER_ROLE, tx.origin);
+        _grantRole(STABLE_COIN_MANAGER_ROLE, tx.origin);
+        _grantRole(LENDING_MANAGER_ROLE, tx.origin);
+        _grantRole(STAKING_MANAGER_ROLE, tx.origin);
+        _grantRole(AMM_MANAGER_ROLE, tx.origin);
+        _grantRole(INTENT_MANAGER_ROLE, tx.origin);
     }
 
     function initialize(
@@ -46,13 +56,15 @@ contract BittyRegistry is IRegistry, Initializable, AccessControl {
         address[] memory stableCoins_,
         address[] memory lendingProtocols_,
         address[] memory stakingProtocols_,
-        address[] memory ammProtocols_
+        address[] memory ammProtocols_,
+        address[] memory intentProtocols_
     ) public initializer onlyRole(DEFAULT_ADMIN_ROLE) {
         _addAssets(assets_);
         _addStableCoins(stableCoins_);
         _addLendingProtocols(lendingProtocols_);
         _addStakingProtocols(stakingProtocols_);
         _addAMMProtocols(ammProtocols_);
+        _addIntentProtocols(intentProtocols_);
     }
 
     function addAssets(address[] memory assetAddresses) external override onlyRole(ASSET_MANAGER_ROLE) {
@@ -62,7 +74,7 @@ contract BittyRegistry is IRegistry, Initializable, AccessControl {
     function _addAssets(address[] memory assetAddresses) internal {
         for (uint256 i = 0; i < assetAddresses.length; i++) {
             if (assetAddresses[i] != address(0)) {
-                assets[assetAddresses[i]] = true;
+                _assets.add(assetAddresses[i]);
             }
         }
     }
@@ -70,13 +82,13 @@ contract BittyRegistry is IRegistry, Initializable, AccessControl {
     function removeAssets(address[] memory assetAddresses) external override onlyRole(ASSET_MANAGER_ROLE) {
         for (uint256 i = 0; i < assetAddresses.length; i++) {
             if (assetAddresses[i] != address(0)) {
-                assets[assetAddresses[i]] = false;
+                _assets.remove(assetAddresses[i]);
             }
         }
     }
 
     function isAssetRegistered(address assetAddress) external view override returns (bool) {
-        return assets[assetAddress];
+        return _assets.contains(assetAddress);
     }
 
     function addStableCoins(address[] memory stableCoinAddresses) external override onlyRole(STABLE_COIN_MANAGER_ROLE) {
@@ -86,7 +98,7 @@ contract BittyRegistry is IRegistry, Initializable, AccessControl {
     function _addStableCoins(address[] memory stableCoinAddresses) internal {
         for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
             if (stableCoinAddresses[i] != address(0)) {
-                stableCoins[stableCoinAddresses[i]] = true;
+                _stableCoins.add(stableCoinAddresses[i]);
             }
         }
     }
@@ -98,13 +110,13 @@ contract BittyRegistry is IRegistry, Initializable, AccessControl {
     {
         for (uint256 i = 0; i < stableCoinAddresses.length; i++) {
             if (stableCoinAddresses[i] != address(0)) {
-                stableCoins[stableCoinAddresses[i]] = false;
+                _stableCoins.remove(stableCoinAddresses[i]);
             }
         }
     }
 
     function isStableCoinRegistered(address stableCoinAddress) external view override returns (bool) {
-        return stableCoins[stableCoinAddress];
+        return _stableCoins.contains(stableCoinAddress);
     }
 
     function addLendingProtocols(address[] memory lendingProtocolAddresses)
@@ -118,7 +130,7 @@ contract BittyRegistry is IRegistry, Initializable, AccessControl {
     function _addLendingProtocols(address[] memory lendingProtocolAddresses) internal {
         for (uint256 i = 0; i < lendingProtocolAddresses.length; i++) {
             if (lendingProtocolAddresses[i] != address(0)) {
-                lendingProtocols[lendingProtocolAddresses[i]] = true;
+                _lendingProtocols.add(lendingProtocolAddresses[i]);
                 deprecatedLendingProtocols[lendingProtocolAddresses[i]] = false;
             }
         }
@@ -131,14 +143,14 @@ contract BittyRegistry is IRegistry, Initializable, AccessControl {
     {
         for (uint256 i = 0; i < lendingProtocolAddresses.length; i++) {
             if (lendingProtocolAddresses[i] != address(0)) {
-                lendingProtocols[lendingProtocolAddresses[i]] = false;
+                _lendingProtocols.remove(lendingProtocolAddresses[i]);
                 deprecatedLendingProtocols[lendingProtocolAddresses[i]] = true;
             }
         }
     }
 
     function isLendingProtocolRegistered(address lendingProtocolAddress) external view override returns (bool) {
-        return lendingProtocols[lendingProtocolAddress];
+        return _lendingProtocols.contains(lendingProtocolAddress);
     }
 
     function isLendingProtocolDeprecated(address lendingProtocolAddress) external view override returns (bool) {
@@ -156,14 +168,14 @@ contract BittyRegistry is IRegistry, Initializable, AccessControl {
     function _addStakingProtocols(address[] memory stakingProtocolAddresses) internal {
         for (uint256 i = 0; i < stakingProtocolAddresses.length; i++) {
             if (stakingProtocolAddresses[i] != address(0)) {
-                stakingProtocols[stakingProtocolAddresses[i]] = true;
+                _stakingProtocols.add(stakingProtocolAddresses[i]);
                 deprecatedStakingProtocols[stakingProtocolAddresses[i]] = false;
             }
         }
     }
 
     function isStakingProtocolRegistered(address stakingProtocolAddress) external view override returns (bool) {
-        return stakingProtocols[stakingProtocolAddress];
+        return _stakingProtocols.contains(stakingProtocolAddress);
     }
 
     function isStakingProtocolDeprecated(address stakingProtocolAddress) external view override returns (bool) {
@@ -177,7 +189,7 @@ contract BittyRegistry is IRegistry, Initializable, AccessControl {
     {
         for (uint256 i = 0; i < stakingProtocolAddress.length; i++) {
             if (stakingProtocolAddress[i] != address(0)) {
-                stakingProtocols[stakingProtocolAddress[i]] = false;
+                _stakingProtocols.remove(stakingProtocolAddress[i]);
                 deprecatedStakingProtocols[stakingProtocolAddress[i]] = true;
             }
         }
@@ -208,5 +220,88 @@ contract BittyRegistry is IRegistry, Initializable, AccessControl {
 
     function isAMMProtocolRegistered(address ammProtocolAddress) external view override returns (bool) {
         return _ammProtocols.contains(ammProtocolAddress);
+    }
+
+    function addIntentProtocols(address[] memory intentProtocolAddresses)
+        external
+        override
+        onlyRole(INTENT_MANAGER_ROLE)
+    {
+        _addIntentProtocols(intentProtocolAddresses);
+    }
+
+    function _addIntentProtocols(address[] memory intentProtocolAddresses) internal {
+        for (uint256 i = 0; i < intentProtocolAddresses.length; i++) {
+            if (intentProtocolAddresses[i] != address(0)) {
+                _intentProtocols.add(intentProtocolAddresses[i]);
+                deprecatedIntentProtocols[intentProtocolAddresses[i]] = false;
+            }
+        }
+    }
+
+    function isIntentProtocolRegistered(address intentProtocolAddress) external view override returns (bool) {
+        return _intentProtocols.contains(intentProtocolAddress);
+    }
+
+    function deprecateIntentProtocols(address[] memory intentProtocolAddresses)
+        external
+        override
+        onlyRole(INTENT_MANAGER_ROLE)
+    {
+        for (uint256 i = 0; i < intentProtocolAddresses.length; i++) {
+            if (intentProtocolAddresses[i] != address(0)) {
+                _intentProtocols.remove(intentProtocolAddresses[i]);
+                deprecatedIntentProtocols[intentProtocolAddresses[i]] = true;
+            }
+        }
+    }
+
+    function _activeAddresses(EnumerableSet.AddressSet storage set, mapping(address => bool) storage deprecatedMap)
+        private
+        view
+        returns (address[] memory active)
+    {
+        address[] memory all = set.values();
+        uint256 activeCount;
+        for (uint256 i = 0; i < all.length; i++) {
+            if (!deprecatedMap[all[i]]) {
+                activeCount++;
+            }
+        }
+        active = new address[](activeCount);
+        uint256 j;
+        for (uint256 i = 0; i < all.length; i++) {
+            if (!deprecatedMap[all[i]]) {
+                active[j++] = all[i];
+            }
+        }
+    }
+
+    function isIntentProtocolDeprecated(address intentProtocolAddress) external view override returns (bool) {
+        return deprecatedIntentProtocols[intentProtocolAddress];
+    }
+
+    function getAssets() external view override returns (address[] memory addresses) {
+        return _assets.values();
+    }
+
+    function getStableCoins() external view override returns (address[] memory addresses) {
+        return _stableCoins.values();
+    }
+
+    function getLendingProtocols() external view override returns (address[] memory addresses) {
+        return _activeAddresses(_lendingProtocols, deprecatedLendingProtocols);
+    }
+
+    function getStakingProtocols() external view override returns (address[] memory addresses) {
+        return _activeAddresses(_stakingProtocols, deprecatedStakingProtocols);
+    }
+
+    function getAMMProtocols() external view override returns (address[] memory addresses) {
+        return _ammProtocols.values();
+    }
+
+    function getIntentProtocols() external view override returns (address[] memory addresses) {
+        return _activeAddresses(_intentProtocols, deprecatedIntentProtocols);
     }
 }

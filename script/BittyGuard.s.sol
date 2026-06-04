@@ -4,7 +4,7 @@ pragma solidity ^0.8.34;
 import "forge-std/console.sol";
 import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
-import {BittyRegistry} from "../src/BittyRegistry.sol";
+import {BittyGuard} from "../src/BittyGuard.sol";
 import {DeployScript} from "./BaseDeploy.sol";
 
 interface ImmutableCreate2Factory {
@@ -19,27 +19,30 @@ interface ImmutableCreate2Factory {
 contract Deploy is DeployScript {
     ImmutableCreate2Factory immutable factory = ImmutableCreate2Factory(0x0000000000FFe8B47B3e2130213B802212439497);
 
-    bytes32 salt = 0x0000000000000000000000000000000000000000aa16e60000738000009399cd;
+    bytes32 salt = 0x0000000000000000000000000000000000000000f6d2101661ce480001552144;
 
     function deploy() public override {
-        bytes memory initCode = type(BittyRegistry).creationCode;
+        bytes memory initCode = type(BittyGuard).creationCode;
 
-        address bittyRegistryAddress = factory.safeCreate2(salt, initCode);
-        BittyRegistry bittyRegistry = BittyRegistry(bittyRegistryAddress);
+        address bittyGuardAddress = factory.safeCreate2(salt, initCode);
+        BittyGuard bittyGuard = BittyGuard(bittyGuardAddress);
 
-        address[] memory assets = new address[](3);
-        assets[0] = getAddress("WETH_AAVE");
-        assets[1] = getAddress("WETH_UNI");
-        assets[2] = getAddress("WBTC");
+        address[] memory assets = new address[](4);
+        assets[0] = getAddress("WETH");
+        assets[1] = getAddress("WETH_AAVE");
+        assets[2] = getAddress("WETH_UNI");
+        assets[3] = getAddress("WBTC");
 
         address[] memory stableCoins = new address[](2);
         stableCoins[0] = getAddress("USDT");
         stableCoins[1] = getAddress("USDC");
 
-        bittyRegistry.initialize(assets, stableCoins, new address[](0), new address[](0), new address[](0));
+        bittyGuard.initialize(
+            assets, stableCoins, new address[](0), new address[](0), new address[](0), new address[](0)
+        );
 
-        console2.log("BittyRegistry deployed at", address(bittyRegistry));
+        console2.log("BittyGuard deployed at", address(bittyGuard));
 
-        saveAddress("BITTY_REGISTRY", address(bittyRegistry));
+        saveAddress("BITTY_GUARD", address(bittyGuard));
     }
 }
