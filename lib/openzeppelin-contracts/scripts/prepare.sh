@@ -2,9 +2,4 @@
 
 set -euo pipefail
 
-if [ "${SKIP_COMPILE:-}" == true ]; then
-  exit
-fi
-
-npm run clean
-env COMPILE_MODE=production npm run compile
+if git status &>/dev/null; then git config core.hooksPath .githooks; fi
