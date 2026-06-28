@@ -425,8 +425,9 @@ contract BittyV1GuardTest is Test {
         }
     }
 
-    function test_GetBittyV1GuardInitCode() public pure {
-        bytes memory bytecode = type(BittyV1Guard).creationCode;
-        console.logBytes32(keccak256(bytecode));
+    function test_GetBittyV1GuardInitCode() public view {
+        bytes32 initCodeHash = keccak256(type(BittyV1Guard).creationCode);
+        console.log("INIT_CODE_HASH");
+        console.logBytes32(initCodeHash);
     }
 }

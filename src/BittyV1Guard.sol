@@ -12,8 +12,9 @@ import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/Enum
 /**
  * @title BittyV1Guard
  * @notice Guard of allowed assets and protocols for Bitty.
- * @dev Mutations are gated by {AccessControl} roles. `DEFAULT_ADMIN_ROLE` (assigned to `tx.origin` at deploy)
- *      can grant or revoke manager roles. Admin transfers use a 2-step flow with {DEFAULT_ADMIN_TRANSFER_DELAY}.
+ * @dev Mutations are gated by {AccessControl} roles. `DEFAULT_ADMIN_ROLE` is assigned to `tx.origin`
+ *      at deploy (not encoded in CREATE2 init code, so init code hash is stable for salt mining).
+ *      Admin transfers use a 2-step flow with {DEFAULT_ADMIN_TRANSFER_DELAY}.
  *      Each category has its own manager role so operations can be split across addresses.
  */
 contract BittyV1Guard is IBittyV1Guard, Initializable, AccessControlDefaultAdminRules {
