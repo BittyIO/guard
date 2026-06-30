@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.34;
 
-error AMMProtocolShouldNotBeAllRemoved();
 error NotRegistered();
 error Deprecated();
 
@@ -157,11 +156,12 @@ interface IBittyV1Guard {
     function addAMMProtocols(address[] memory ammProtocolAddresses) external;
 
     /**
-     * @notice Remove a swap protocol from Bitty.
-     * @dev Remove a swap protocol from Bitty.
+     * @notice Deprecate a swap protocol from Bitty.
+     * @dev Deprecate a swap protocol from Bitty.
+     *      A deprecated swap protocol is only used for removing LP, can not add LP anymore.
      * @param ammProtocolAddresses The addresses of the swap protocols.
      */
-    function removeAMMProtocols(address[] memory ammProtocolAddresses) external;
+    function deprecateAMMProtocols(address[] memory ammProtocolAddresses) external;
 
     /**
      * @notice Check if a swap protocol is registered.
@@ -170,6 +170,14 @@ interface IBittyV1Guard {
      * @return bool True if the swap protocol is registered, false otherwise.
      */
     function isAMMProtocolRegistered(address ammProtocolAddress) external view returns (bool);
+
+    /**
+     * @notice Check if a swap protocol is deprecated.
+     * @dev Check if a swap protocol is deprecated.
+     * @param ammProtocolAddress The address of the swap protocol.
+     * @return bool True if the swap protocol is deprecated, false otherwise.
+     */
+    function isAMMProtocolDeprecated(address ammProtocolAddress) external view returns (bool);
 
     /**
      * @notice Get the registered assets.

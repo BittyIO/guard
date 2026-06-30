@@ -6,7 +6,6 @@ import {
     AccessControlDefaultAdminRules
 } from "openzeppelin-contracts/contracts/access/extensions/AccessControlDefaultAdminRules.sol";
 import {IBittyV1Guard} from "./interfaces/IBittyV1Guard.sol";
-import {AMMProtocolShouldNotBeAllRemoved} from "./interfaces/IBittyV1Guard.sol";
 import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 
 /**
@@ -31,13 +30,14 @@ contract BittyV1Guard is IBittyV1Guard, Initializable, AccessControlDefaultAdmin
     bytes32 public constant LENDING_MANAGER_ROLE = keccak256("LENDING_MANAGER_ROLE");
     /// @notice Role allowed to add/deprecate staking protocols.
     bytes32 public constant STAKING_MANAGER_ROLE = keccak256("STAKING_MANAGER_ROLE");
-    /// @notice Role allowed to add/remove AMM protocols.
+    /// @notice Role allowed to add/deprecate AMM protocols.
     bytes32 public constant AMM_MANAGER_ROLE = keccak256("AMM_MANAGER_ROLE");
     /// @notice Role allowed to add/deprecate intent protocols.
     bytes32 public constant INTENT_MANAGER_ROLE = keccak256("INTENT_MANAGER_ROLE");
 
     mapping(address => bool) public deprecatedLendingProtocols;
     mapping(address => bool) public deprecatedStakingProtocols;
+    mapping(address => bool) public deprecatedAMMProtocols;
     mapping(address => bool) public deprecatedIntentProtocols;
 
     EnumerableSet.AddressSet internal _assets;
@@ -208,23 +208,26 @@ contract BittyV1Guard is IBittyV1Guard, Initializable, AccessControlDefaultAdmin
         for (uint256 i = 0; i < ammProtocolAddresses.length; i++) {
             if (ammProtocolAddresses[i] != address(0)) {
                 _ammProtocols.add(ammProtocolAddresses[i]);
+                deprecatedAMMProtocols[ammProtocolAddresses[i]] = false;
             }
         }
     }
 
-    function removeAMMProtocols(address[] memory ammProtocolAddresses) external override onlyRole(AMM_MANAGER_ROLE) {
+    function deprecateAMMProtocols(address[] memory ammProtocolAddresses) external override onlyRole(AMM_MANAGER_ROLE) {
         for (uint256 i = 0; i < ammProtocolAddresses.length; i++) {
             if (ammProtocolAddresses[i] != address(0)) {
                 _ammProtocols.remove(ammProtocolAddresses[i]);
+                deprecatedAMMProtocols[ammProtocolAddresses[i]] = true;
             }
-        }
-        if (_ammProtocols.length() == 0) {
-            revert AMMProtocolShouldNotBeAllRemoved();
         }
     }
 
     function isAMMProtocolRegistered(address ammProtocolAddress) external view override returns (bool) {
         return _ammProtocols.contains(ammProtocolAddress);
+    }
+
+    function isAMMProtocolDeprecated(address ammProtocolAddress) external view override returns (bool) {
+        return deprecatedAMMProtocols[ammProtocolAddress];
     }
 
     function addIntentProtocols(address[] memory intentProtocolAddresses)
@@ -303,7 +306,7 @@ contract BittyV1Guard is IBittyV1Guard, Initializable, AccessControlDefaultAdmin
     }
 
     function getAMMProtocols() external view override returns (address[] memory addresses) {
-        return _ammProtocols.values();
+        return _activeAddresses(_ammProtocols, deprecatedAMMProtocols);
     }
 
     function getIntentProtocols() external view override returns (address[] memory addresses) {

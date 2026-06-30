@@ -5,7 +5,6 @@ import "forge-std/console.sol";
 import {Test} from "lib/forge-std/src/Test.sol";
 import {BittyV1Guard} from "../../src/BittyV1Guard.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
-import {AMMProtocolShouldNotBeAllRemoved} from "../../src/interfaces/IBittyV1Guard.sol";
 
 contract BittyV1GuardTest is Test {
     BittyV1Guard public bittyGuard;
@@ -132,30 +131,39 @@ contract BittyV1GuardTest is Test {
         vm.prank(protocolOwner);
         bittyGuard.addAMMProtocols(ammProtocols);
         assertTrue(bittyGuard.isAMMProtocolRegistered(ammProtocol));
+        assertFalse(bittyGuard.isAMMProtocolDeprecated(ammProtocol));
     }
 
-    function test_RemoveAMMProtocolsFailedWhenAllRemoved() public {
-        address[] memory ammProtocolAddresses = new address[](1);
-        ammProtocolAddresses[0] = ammProtocol;
+    function test_DeprecateAMMProtocols() public {
         vm.prank(protocolOwner);
-        vm.expectRevert(AMMProtocolShouldNotBeAllRemoved.selector);
-        bittyGuard.removeAMMProtocols(ammProtocolAddresses);
+        bittyGuard.addAMMProtocols(ammProtocols);
+        vm.prank(protocolOwner);
+        bittyGuard.deprecateAMMProtocols(ammProtocols);
+        assertFalse(bittyGuard.isAMMProtocolRegistered(ammProtocol));
+        assertTrue(bittyGuard.isAMMProtocolDeprecated(ammProtocol));
+        assertEq(bittyGuard.getAMMProtocols().length, 0);
     }
 
-    function test_RemoveAMMProtocolsShouldBeFine() public {
+    function test_DeprecateAMMProtocolsAllowsAllDeprecated() public {
         address[] memory ammProtocolAddresses = new address[](1);
         ammProtocolAddresses[0] = ammProtocol;
-        address[] memory invalidAMMProtocols = new address[](1);
-        address invalidAMMProtocol = makeAddr("InvalidAMMProtocol");
-        invalidAMMProtocols[0] = invalidAMMProtocol;
-        vm.prank(protocolOwner);
-        bittyGuard.addAMMProtocols(invalidAMMProtocols);
         vm.prank(protocolOwner);
         bittyGuard.addAMMProtocols(ammProtocolAddresses);
         vm.prank(protocolOwner);
-        bittyGuard.removeAMMProtocols(invalidAMMProtocols);
+        bittyGuard.deprecateAMMProtocols(ammProtocolAddresses);
+        assertFalse(bittyGuard.isAMMProtocolRegistered(ammProtocol));
+        assertTrue(bittyGuard.isAMMProtocolDeprecated(ammProtocol));
+    }
+
+    function test_AddAMMProtocolsClearsDeprecatedFlag() public {
+        vm.prank(protocolOwner);
+        bittyGuard.addAMMProtocols(ammProtocols);
+        vm.prank(protocolOwner);
+        bittyGuard.deprecateAMMProtocols(ammProtocols);
+        vm.prank(protocolOwner);
+        bittyGuard.addAMMProtocols(ammProtocols);
         assertTrue(bittyGuard.isAMMProtocolRegistered(ammProtocol));
-        assertFalse(bittyGuard.isAMMProtocolRegistered(invalidAMMProtocol));
+        assertFalse(bittyGuard.isAMMProtocolDeprecated(ammProtocol));
     }
 
     function test_AddRegisteredNeedToRemoveDeprecated() public {
@@ -246,20 +254,22 @@ contract BittyV1GuardTest is Test {
         _assertSameMembers(bittyGuard.getAMMProtocols(), ammProtocols);
     }
 
-    function test_GetAMMProtocolsAfterPartialRemove() public {
+    function test_GetAMMProtocolsAfterPartialDeprecate() public {
         address extraAmm = makeAddr("extraAmm");
         address[] memory twoAmms = new address[](2);
         twoAmms[0] = ammProtocol;
         twoAmms[1] = extraAmm;
         vm.prank(protocolOwner);
         bittyGuard.addAMMProtocols(twoAmms);
-        address[] memory toRemove = new address[](1);
-        toRemove[0] = extraAmm;
+        address[] memory toDeprecate = new address[](1);
+        toDeprecate[0] = extraAmm;
         vm.prank(protocolOwner);
-        bittyGuard.removeAMMProtocols(toRemove);
+        bittyGuard.deprecateAMMProtocols(toDeprecate);
         address[] memory expected = new address[](1);
         expected[0] = ammProtocol;
         _assertSameMembers(bittyGuard.getAMMProtocols(), expected);
+        assertTrue(bittyGuard.isAMMProtocolDeprecated(extraAmm));
+        assertFalse(bittyGuard.isAMMProtocolRegistered(extraAmm));
     }
 
     function test_GetLendingProtocols() public {
@@ -411,7 +421,7 @@ contract BittyV1GuardTest is Test {
         assertEq(bittyGuard.owner(), deployAdmin);
     }
 
-    function _assertSameMembers(address[] memory actual, address[] memory expected) internal {
+    function _assertSameMembers(address[] memory actual, address[] memory expected) pure internal {
         assertEq(actual.length, expected.length, "array length mismatch");
         for (uint256 i = 0; i < expected.length; i++) {
             bool found;
@@ -425,7 +435,7 @@ contract BittyV1GuardTest is Test {
         }
     }
 
-    function test_GetBittyV1GuardInitCode() public view {
+    function test_GetBittyV1GuardInitCode() public pure {
         bytes32 initCodeHash = keccak256(type(BittyV1Guard).creationCode);
         console.log("INIT_CODE_HASH");
         console.logBytes32(initCodeHash);
