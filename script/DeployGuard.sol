@@ -31,7 +31,7 @@ abstract contract DeployGuard is DeployScript {
     ImmutableCreate2Factory internal constant IMMUTABLE_CREATE2 =
         ImmutableCreate2Factory(0x0000000000FFe8B47B3e2130213B802212439497);
 
-    bytes32 internal constant GUARD_SALT = 0x12ee2de7bf086388b1d560eb95e7191edfab98239abf831f3b8910000e44b9e2;
+    bytes32 internal constant GUARD_SALT = 0x12ee2de7bf086388b1d560eb95e7191edfab98234688883269660000497b86c8;
 
     address[] private _assets;
     uint8[] private _assetCategories;

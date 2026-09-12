@@ -14,8 +14,6 @@ import {DeployGuard} from "./DeployGuard.sol";
 contract Deploy is DeployGuard {
     function deploy() public override {
         _asset("WETH", ASSET_CRYPTO);
-        _asset("WETH_AAVE", ASSET_CRYPTO);
-        _asset("WETH_UNI", ASSET_CRYPTO);
         _asset("WBTC", ASSET_CRYPTO);
         _asset("USDT", ASSET_STABLE_COIN);
         _asset("USDC", ASSET_STABLE_COIN);

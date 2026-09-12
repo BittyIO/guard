@@ -2,7 +2,8 @@
 pragma solidity ^0.8.34;
 
 import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {NotDeployer} from "./interfaces/IBittyV1Guard.sol";
+
+error NotDeployer();
 
 /**
  * @title BittyV1GuardBootstrap

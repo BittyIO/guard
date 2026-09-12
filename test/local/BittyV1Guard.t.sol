@@ -760,20 +760,7 @@ contract BittyV1GuardTest is Test {
         assertTrue(bittyGuard.isAssetRegistered(address(mockWETH)));
     }
 
-    /**
-     * The hash to mine a vanity guard address against.
-     *
-     * It is the PROXY's, not the implementation's. BITTY_GUARD is compiled into every vault and now
-     * points at the proxy; the implementation goes through the standard CREATE2 deployer at salt 0,
-     * where its address follows from its bytecode and no mining applies. Mining the implementation
-     * hash would produce a salt for an address nothing ever deploys to.
-     *
-     * The proxy is constructed with EMPTY init data on purpose, so this hash carries no per-chain
-     * seed data and one mined salt lands on the same address on every chain.
-     */
     function test_GetBittyV1GuardProxyInitCode() public pure {
-        // The BOOTSTRAP, not the guard build: that is the whole point of the bootstrap, and mining
-        // against the build would pin the guard's address to one version and one chain.
         address bootstrap = address(
             uint160(
                 uint256(
@@ -794,11 +781,8 @@ contract BittyV1GuardTest is Test {
         );
     }
 
-    /// The proxy address is reproducible on every chain, so the window before the first upgrade is
-    /// reachable by anyone on a chain Bitty has not deployed to yet. Only the deployer may close it.
     function test_OnlyDeployerMayUpgradeOffTheBootstrap() public {
         address proxy = address(new ERC1967Proxy(address(new BittyV1GuardBootstrap()), ""));
-        // Deployed up front: a `new` in the argument list is itself a call, and would eat the prank.
         address build = address(new BittyV1Guard());
         address stranger = makeAddr("stranger");
 
