@@ -6,6 +6,7 @@ import {ERC1967Utils} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC19
 import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {console2} from "forge-std/console2.sol";
 import {BittyV1Guard} from "../src/BittyV1Guard.sol";
+import {IBittyV1Guard, IMPLEMENTATION_VAULT} from "../src/interfaces/IBittyV1Guard.sol";
 import {BittyV1GuardBootstrap} from "../src/BittyV1GuardBootstrap.sol";
 import {DeployScript} from "./BaseDeploy.sol";
 
@@ -48,7 +49,7 @@ abstract contract DeployGuard is DeployScript {
         _protocolCategories.push(category);
     }
 
-    function _deployGuard() internal {
+    function _deployGuard() internal returns (address guard) {
         address guardImpl = deployAtSaltZero(type(BittyV1Guard).creationCode);
 
         address bootstrap = deployAtSaltZero(type(BittyV1GuardBootstrap).creationCode);
@@ -56,7 +57,7 @@ abstract contract DeployGuard is DeployScript {
         console2.log("proxy initCode hash (mine the salt against this):");
         console2.logBytes32(keccak256(initCode));
 
-        address guard = create2Address(address(IMMUTABLE_CREATE2), GUARD_SALT, initCode);
+        guard = create2Address(address(IMMUTABLE_CREATE2), GUARD_SALT, initCode);
         if (guard.code.length == 0) IMMUTABLE_CREATE2.safeCreate2(GUARD_SALT, initCode);
 
         if (address(uint160(uint256(vm.load(guard, ERC1967Utils.IMPLEMENTATION_SLOT)))) != guardImpl) {
@@ -71,5 +72,22 @@ abstract contract DeployGuard is DeployScript {
         console2.log("guard implementation at ", guardImpl);
         console2.log("BittyV1Guard deployed at", guard);
         saveAddress("BITTY_GUARD", guard);
+    }
+
+    bytes32 internal constant CFG_OWNER = keccak256("bitty.owner");
+    bytes32 internal constant CFG_GAS_WRAPPED = keccak256("bitty.gasWrapped");
+
+    function _configure(address guardAddress) internal {
+        IBittyV1Guard guard = IBittyV1Guard(guardAddress);
+        address owner = getAddress("OWNER");
+        if (guard.getAddress(CFG_OWNER) != owner) {
+            guard.setAddress(CFG_OWNER, owner);
+            console2.log("CFG_OWNER set", owner);
+        }
+        address gasWrapped = getAddress("WETH");
+        if (guard.getAddress(CFG_GAS_WRAPPED) != gasWrapped) {
+            guard.setAddress(CFG_GAS_WRAPPED, gasWrapped);
+            console2.log("CFG_GAS_WRAPPED set", gasWrapped);
+        }
     }
 }
