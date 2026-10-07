@@ -34,6 +34,23 @@ abstract contract DeployGuard is DeployScript {
 
     bytes32 internal constant GUARD_SALT = 0x12ee2de7bf086388b1d560eb95e7191edfab98234688883269660000497b86c8;
 
+    /**
+     * @dev The guard proxy's CREATE2 init-code hash: {ERC1967Proxy} creation code plus its constructor
+     *      args (the salt-0 {BittyV1GuardBootstrap}, ""). {GUARD_SALT} was vanity-mined against exactly
+     *      this hash, and the resulting address is a compile-time constant across the vault and
+     *      protocol-store repos. The creation code of both contracts ends in solc's CBOR metadata, so a
+     *      build with a different OpenZeppelin revision, solc version, or optimizer/metadata setting
+     *      changes this hash — and would silently put the guard at a different, non-vanity address on a
+     *      fresh chain, orphaning every downstream constant. {_deployGuard} therefore refuses to run
+     *      against drifted bytes. If the init code is ever changed ON PURPOSE, mine a new salt against
+     *      the new hash (the script logs it) and update {GUARD_SALT}, this constant, {EXPECTED_GUARD},
+     *      and every repo that hardcodes the guard address.
+     */
+    bytes32 internal constant GUARD_PROXY_INITCODE_HASH =
+        0x0cd908268c2e00b5a68b74851c32a393b6e5b42f6c0bfc5beedb3ad40b0d5b0b;
+
+    address internal constant EXPECTED_GUARD = 0x00006Dc0000DBB00d9bd462ad2005E20007e0Dc7;
+
     address[] private _assets;
     uint8[] private _assetCategories;
     address[] private _protocols;
@@ -57,7 +74,13 @@ abstract contract DeployGuard is DeployScript {
         console2.log("proxy initCode hash (mine the salt against this):");
         console2.logBytes32(keccak256(initCode));
 
+        require(
+            keccak256(initCode) == GUARD_PROXY_INITCODE_HASH,
+            "DeployGuard: proxy init code drifted - rebuild with the pinned toolchain or re-mine the salt"
+        );
+
         guard = create2Address(address(IMMUTABLE_CREATE2), GUARD_SALT, initCode);
+        require(guard == EXPECTED_GUARD, "DeployGuard: guard address drifted");
         if (guard.code.length == 0) IMMUTABLE_CREATE2.safeCreate2(GUARD_SALT, initCode);
 
         if (address(uint160(uint256(vm.load(guard, ERC1967Utils.IMPLEMENTATION_SLOT)))) != guardImpl) {
