@@ -2,13 +2,15 @@
 
 On-chain registry of allowed assets, DeFi protocols, and account implementations for [Bitty](https://github.com/BittyIO) vaults. The guard is the source of truth for what tokens vaults may hold, which external protocols they may interact with, and which implementations they may upgrade to.
 
-| Chain   | Address |
-|---------|---------|
-| Mainnet | [`0x9FFd004eDd0eBE0F5B0000c0002e0200001d8D00`](https://etherscan.io/address/0x9FFd004eDd0eBE0F5B0000c0002e0200001d8D00) |
-| Base    | [`0x9FFd004eDd0eBE0F5B0000c0002e0200001d8D00`](https://basescan.org/address/0x9FFd004eDd0eBE0F5B0000c0002e0200001d8D00) |
-| Sepolia | [`0x9FFd004eDd0eBE0F5B0000c0002e0200001d8D00`](https://sepolia.etherscan.io/address/0x9FFd004eDd0eBE0F5B0000c0002e0200001d8D00) |
+| Chain     | Address |
+|-----------|---------|
+| Mainnet   | [`0x000000000F5fcD35885BfE4c700042cE7cb39554`](https://etherscan.io/address/0x000000000F5fcD35885BfE4c700042cE7cb39554) |
+| Base      | [`0x000000000F5fcD35885BfE4c700042cE7cb39554`](https://basescan.org/address/0x000000000F5fcD35885BfE4c700042cE7cb39554) |
+| Arbitrum  | [`0x000000000F5fcD35885BfE4c700042cE7cb39554`](https://arbiscan.io/address/0x000000000F5fcD35885BfE4c700042cE7cb39554) |
+| Sepolia   | [`0x000000000F5fcD35885BfE4c700042cE7cb39554`](https://sepolia.etherscan.io/address/0x000000000F5fcD35885BfE4c700042cE7cb39554) |
+| Robinhood | [`0x000000000F5fcD35885BfE4c700042cE7cb39554`](https://robinhoodchain.blockscout.com/address/0x000000000F5fcD35885BfE4c700042cE7cb39554) |
 
-One address on every chain. Live on Sepolia; Mainnet and Base are not deployed yet and will land here when they are.
+One address on every chain. Sepolia is the usual test target; other chains are deployed or in progress by running the same script against `deployments/<chain>.toml`.
 
 **This is not a coincidence to be maintained by hand.** The proxy is born on a constant bootstrap implementation rather than on the current build (see [Deployment](#deployment)), so its init code — and therefore its CREATE2 address — is identical everywhere, at every version. A new chain reaches it by running the deploy script, with nothing to reproduce from an older commit.
 
@@ -16,13 +18,14 @@ This is a **proxy** address. The guard is a UUPS proxy, so the address above is 
 
 ## Overview
 
-`BittyV1Guard` maintains three registries:
+`BittyV1Guard` maintains three registries plus a small config map:
 
 | Registry | Lifecycle | Effect |
 |----------|-----------|--------|
 | **Assets** | Add / remove | Removed assets can only be sold, not bought |
 | **Protocols** | Add / deprecate | Deprecated protocols are exit-only — existing positions can be withdrawn, but no new deposits |
 | **Implementations** | Set / retire | An account may only UUPS-upgrade to the current or a past implementation of its category; retiring one blocks it as a *future* target but does not affect accounts already running it |
+| **Config** | Set (address / uint) | Opaque `bytes32` keys → values shared across the fleet (e.g. `keccak256("bitty.owner")`, `keccak256("bitty.gasWrapped")`) |
 
 There is no separate stable-coin registry. A stable coin is an asset whose category bitmask includes `ASSET_STABLE_COIN`; callers distinguish token types with a bitwise test — `assetCategory(token) & ASSET_STABLE_COIN != 0` — not `==` (see the asset-bitmask note under [Category conventions](#category-conventions)).
 
@@ -32,33 +35,36 @@ Every registry entry carries a `uint8` category supplied by the caller. The guar
 
 ### Category conventions
 
-The three category namespaces are independent — the same number means different things in each. The shipped constants are exported from [`IBittyV1Guard.sol`](src/interfaces/IBittyV1Guard.sol) so consumers do not hardcode integers; `ASSET_AMM_SUPPORTED` is **reserved by convention here** (the guard already stores it fine as an opaque bitmask value — see below — so it is documented now and added to the interface when a consumer adopts it):
+The three category namespaces are independent — the same number means different things in each. The shipped constants are exported from [`IBittyV1Guard.sol`](src/interfaces/IBittyV1Guard.sol) so consumers do not hardcode integers:
 
 | Constant | Value | Namespace | Kind |
 |----------|-------|-----------|------|
 | `ASSET_STABLE_COIN` | `1` (`0b0001`) | Assets | bit flag |
 | `ASSET_CRYPTO` | `2` (`0b0010`) | Assets | bit flag |
-| `ASSET_AMM_SUPPORTED` | `4` (`0b0100`) | Assets | bit flag |
-| `PROTOCOL_LENDING` | `1` | Protocols | single value |
-| `PROTOCOL_STAKING` | `2` | Protocols | single value |
-| `PROTOCOL_AMM` | `3` | Protocols | single value |
+| `ASSET_AMM_LIQUID` | `4` (`0b0100`) | Assets | bit flag (LP / pool liquidity) |
+| `PROTOCOL_STAKING` | `1` | Protocols | single value |
+| `PROTOCOL_LENDING` | `2` | Protocols | single value |
+| `PROTOCOL_MARKET_TRADE` | `3` | Protocols | single value |
 | `PROTOCOL_INTENT` | `4` | Protocols | single value |
+| `PROTOCOL_MARKET_MAKER` | `5` | Protocols | single value |
 | `IMPLEMENTATION_VAULT` | `1` | Implementations | single value |
+
+There is no separate AMM protocol category. Spot-style routing uses **market trade** and **market maker** adapters; deprecated lending/staking (and legacy pool) protocols stay registered as **deprecated** so vaults can exit positions only.
 
 **Asset categories are a bitmask.** Every `ASSET_*` flag is a distinct power of two, so an asset's `assetCategory` is the OR of *every* category it belongs to — one asset can be several at once. Register an asset with the combined mask, and test membership with a bitwise AND, never `==`:
 
 ```solidity
-// ETH is both crypto AND usable in AMM pools:
-addAssets([WETH], [ASSET_CRYPTO | ASSET_AMM_SUPPORTED]);   // stores 2 | 4 = 6
+// WETH is crypto and usable as pool liquidity:
+addAssets([WETH], [ASSET_CRYPTO | ASSET_AMM_LIQUID]);   // stores 2 | 4 = 6
 
 // Consumers check a single capability, ignoring the other bits:
-guard.assetCategory(WETH) & ASSET_STABLE_COIN   != 0;      // false
-guard.assetCategory(WETH) & ASSET_AMM_SUPPORTED != 0;      // true
+guard.assetCategory(WETH) & ASSET_STABLE_COIN != 0;   // false
+guard.assetCategory(WETH) & ASSET_AMM_LIQUID  != 0;   // true
 ```
 
 An `==` comparison (`assetCategory(token) == ASSET_STABLE_COIN`) is a bug the moment an asset carries more than one flag — always mask with `&`.
 
-Adding a new asset capability is just the next power of two (`8`, `16`, …). The guard needs no change — it stores the mask verbatim and never interprets it — so a new flag is only a convention agreed with consumers plus its constant here and in `IBittyV1Guard.sol`. `ASSET_AMM_SUPPORTED` above is documented as that convention; keep the values powers of two so they stay OR-able.
+Adding a new asset capability is just the next power of two (`8`, `16`, …). The guard needs no change — it stores the mask verbatim and never interprets it — so a new flag is only a convention agreed with consumers plus its constant in `IBittyV1Guard.sol`. Keep values as powers of two so they stay OR-able.
 
 Protocol and implementation categories are **not** bitmasks — each entry is exactly one category (a protocol is one kind of protocol; an implementation belongs to one account type), so those are read with `==`.
 
@@ -83,8 +89,9 @@ Administration uses OpenZeppelin `AccessControlDefaultAdminRules` with a **7-day
 | `ASSET_MANAGER_ROLE` | Asset registry |
 | `PROTOCOL_MANAGER_ROLE` | Protocol registration / deprecation, all protocol categories |
 | `IMPLEMENTATION_MANAGER_ROLE` | Implementation registry, all implementation categories |
+| `CONFIG_MANAGER_ROLE` | Config map (`setAddress` / `setUint`) |
 
-One role per registry: what an account may **hold**, what it may **use**, and what it may **upgrade to**.
+One role per registry: what an account may **hold**, what it may **use**, what it may **upgrade to**, and shared fleet config.
 
 A holder of `PROTOCOL_MANAGER_ROLE` can register any protocol category. Per-category manager roles existed in an earlier design; if separate custody is needed again, that would mean restoring per-category roles rather than hiding checks inside the current ones.
 
@@ -102,7 +109,7 @@ Three contracts are deployed, by two different factories, on purpose:
 
 The vanity salt is spent on the **proxy**, since that is the address vaults name. `ImmutableCreate2Factory` enforces that the salt's leading 20 bytes equal the caller, so only the designated deployer can land the contract at the target address. The other two go through the plain CREATE2 deployer at salt `0`, which makes each address a pure function of its init code.
 
-**The proxy is born on the bootstrap, not on the build.** A proxy's init code embeds its implementation, so a proxy pointed straight at `BittyV1Guard` would move to a new address on every guard release — and a second chain could only match the first by rebuilding the exact implementation that chain was born with, from the commit that produced it, forever. `BittyV1GuardBootstrap` is a permanent do-nothing implementation that takes the build out of the hash; the deploy script upgrades the proxy to the real `BittyV1Guard` in the same run. Its `_authorizeUpgrade` is gated on `tx.origin == DEPLOYER`, because the proxy address is reproducible on every chain and the window before the first upgrade would otherwise be open to anyone on a chain Bitty has not reached yet.
+**The proxy is born on the bootstrap, not on the build.** A proxy's init code embeds its implementation, so a proxy pointed straight at `BittyV1Guard` would move to a new address on every guard release — and a second chain could only match the first by rebuilding the exact implementation that chain was born with, from the commit that produced it, forever. `BittyV1GuardBootstrap` is a permanent do-nothing implementation that takes the build out of the hash; the deploy script upgrades the proxy to the real `BittyV1Guard` in the same run. Its `_authorizeUpgrade` is gated on `tx.origin == DEPLOYER` and reverts with `DeployerError()` (not `NotDeployer()` on the main guard), because the proxy address is reproducible on every chain and the window before the first upgrade would otherwise be open to anyone on a chain Bitty has not reached yet.
 
 The consequence to remember: **the proxy's constructor argument is the bootstrap address and stays that way forever**, including when verifying after an upgrade. It is never the current implementation.
 
@@ -110,7 +117,15 @@ Only `tx.origin == DEPLOYER` (`0x12EE2de7BF086388B1D560eb95e7191Edfab9823`) may 
 
 Every step is idempotent — create, upgrade and initialize are each skipped once done, so a re-run of a partially finished deploy completes it rather than reverting, and a re-run of a finished one reports that there is nothing left to do.
 
-The deploy itself lives in `script/DeployGuard.sol`, shared by the three chain scripts; a chain script states only which assets and protocols to register. The salt, the bootstrap and the factory address are deliberately in the shared file — three copies of the value that fixes a single cross-chain address is exactly what drifts.
+The deploy itself lives in `script/DeployGuard.sol`, shared by every chain script; a chain script states only which assets to seed at `initialize` (and may call `_configure` for config keys). The vanity salt, expected guard address, pinned proxy init-code hash, bootstrap flow, and factory address live only in `DeployGuard.sol` — duplicating any of them in a chain script is how cross-chain addresses drift.
+
+Pinned values in `DeployGuard.sol` (re-mine the salt if bootstrap or proxy init code changes):
+
+| Constant | Purpose |
+|----------|---------|
+| `EXPECTED_GUARD` | `0x000000000F5fcD35885BfE4c700042cE7cb39554` |
+| `GUARD_SALT` | Deployer-prefixed salt for `ImmutableCreate2Factory` |
+| `GUARD_PROXY_INITCODE_HASH` | Must match `keccak256(proxyCreationCode)` logged at deploy |
 
 Per-chain token addresses and the guard address live in `deployments/*.toml`. Initial registry contents differ by chain — for example Base registers cbBTC rather than bridged WBTC because of liquidity depth.
 
@@ -124,20 +139,28 @@ export ETHERSCAN_API_KEY=...
 export PRIVATE_KEY=...
 ```
 
-Then broadcast the chain script (Foundry selects the fork from `deployments/<chain>.toml`):
+Then broadcast the chain script (`--rpc-url` names come from `foundry.toml`; config is read from `deployments/<chain>.toml`):
 
 ```shell
-# Sepolia
-forge script script/BittyV1GuardSepolia.s.sol:Deploy --broadcast -vvvv
+# Sepolia (testnet)
+forge script script/BittyV1GuardSepolia.s.sol:Deploy --rpc-url sepolia --broadcast -vvvv
 
 # Mainnet
-forge script script/BittyV1GuardMainnet.s.sol:Deploy --broadcast -vvvv
+forge script script/BittyV1GuardMainnet.s.sol:Deploy --rpc-url mainnet --broadcast -vvvv
 
 # Base
-forge script script/BittyV1GuardBase.s.sol:Deploy --broadcast -vvvv
+forge script script/BittyV1GuardBase.s.sol:Deploy --rpc-url base --broadcast -vvvv
+
+# Arbitrum One
+forge script script/BittyV1GuardArbitrum.s.sol:Deploy --rpc-url arbitrum --broadcast -vvvv
+
+# Robinhood Chain (4663)
+forge script script/BittyV1GuardRobinhood.s.sol:Deploy --rpc-url robinhood --broadcast -vvvv
 ```
 
-The script logs the implementation address and the proxy init-code hash. Keep both — the first is what you verify, the second is what you mine a new vanity salt against if the implementation ever changes shape.
+CREATE2 proxy deployment and the first upgrade are gas-heavy. If a broadcast tx fails with status `0` and uses almost all of its gas limit, re-run with a higher estimate multiplier, for example `--gas-estimate-multiplier 400` (or more). The script is idempotent — a partial run can be finished by broadcasting again.
+
+The script logs the implementation address, bootstrap address, and proxy init-code hash. Keep all three — the implementation is what you verify, the bootstrap is the proxy constructor argument forever, and the init-code hash is what you re-mine against if bootstrap bytecode changes.
 
 ## Verifying the contract
 
@@ -156,7 +179,7 @@ export ETHERSCAN_API_KEY=...
 Read it out of the proxy's ERC-1967 slot rather than trusting a note — this is always the implementation actually in use:
 
 ```shell
-cast storage 0x9FFd004eDd0eBE0F5B0000c0002e0200001d8D00 \
+cast storage 0x000000000F5fcD35885BfE4c700042cE7cb39554 \
   0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc \
   --rpc-url sepolia
 ```
@@ -177,15 +200,17 @@ forge verify-contract \
 
 ### 3. Verify the bootstrap
 
-No constructor arguments:
+No constructor arguments. The bootstrap is CREATE2 at salt `0` on `0x4e59b44847b379578588920cA78FbF26c0B4956C` — use the address from the deploy logs, not a stale note:
 
 ```shell
 forge verify-contract \
   --chain sepolia \
   --watch \
-  0xCb43DEd835f57Be1732A320a8F26c78595cF609A \
+  <BOOTSTRAP_ADDRESS> \
   src/BittyV1GuardBootstrap.sol:BittyV1GuardBootstrap
 ```
+
+You can also read the bootstrap from the proxy's creation input: it is the first constructor argument to `ERC1967Proxy`.
 
 ### 4. Verify the proxy
 
@@ -195,8 +220,8 @@ forge verify-contract \
 forge verify-contract \
   --chain sepolia \
   --watch \
-  --constructor-args $(cast abi-encode "constructor(address,bytes)" 0xCb43DEd835f57Be1732A320a8F26c78595cF609A 0x) \
-  0x9FFd004eDd0eBE0F5B0000c0002e0200001d8D00 \
+  --constructor-args $(cast abi-encode "constructor(address,bytes)" <BOOTSTRAP_ADDRESS> 0x) \
+  0x000000000F5fcD35885BfE4c700042cE7cb39554 \
   lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy
 ```
 
@@ -211,7 +236,7 @@ curl -X POST "https://api.etherscan.io/v2/api?chainid=11155111" \
   -d "module=contract" \
   -d "action=verifyproxycontract" \
   -d "apikey=$ETHERSCAN_API_KEY" \
-  -d "address=0x9FFd004eDd0eBE0F5B0000c0002e0200001d8D00" \
+  -d "address=0x000000000F5fcD35885BfE4c700042cE7cb39554" \
   -d "expectedimplementation=<IMPLEMENTATION_ADDRESS>"
 ```
 
@@ -219,11 +244,12 @@ The same thing is available in the UI under *Contract → More Options → Is th
 
 ### Other chains
 
-Swap `--chain sepolia` for `mainnet` or `base`, and the `chainid` above for `1` or `8453`:
+Swap `--chain sepolia` for `mainnet`, `base`, or `arbitrum`, and the `chainid` in the proxy API for `1`, `8453`, or `42161`:
 
 ```shell
-forge verify-contract --chain mainnet --watch <IMPL> src/BittyV1Guard.sol:BittyV1Guard
-forge verify-contract --chain base    --watch <IMPL> src/BittyV1Guard.sol:BittyV1Guard
+forge verify-contract --chain mainnet  --watch <IMPL> src/BittyV1Guard.sol:BittyV1Guard
+forge verify-contract --chain base     --watch <IMPL> src/BittyV1Guard.sol:BittyV1Guard
+forge verify-contract --chain arbitrum --watch <IMPL> src/BittyV1Guard.sol:BittyV1Guard
 ```
 
 ### Verifying at deploy time
@@ -241,12 +267,12 @@ forge script script/BittyV1GuardSepolia.s.sol:Deploy --broadcast --verify -vvvv
 cast source <IMPLEMENTATION_ADDRESS> --chain sepolia
 
 # Should answer through the proxy once linked
-cast call 0x9FFd004eDd0eBE0F5B0000c0002e0200001d8D00 \
+cast call 0x000000000F5fcD35885BfE4c700042cE7cb39554 \
   "isAssetRegistered(address)(bool)" 0x1c7d4b196cb0c7b01d743fbc6116a902379c7238 \
   --rpc-url sepolia
 
 # Should report the build actually running behind the proxy
-cast call 0x9FFd004eDd0eBE0F5B0000c0002e0200001d8D00 "versionName()(string)" --rpc-url sepolia
+cast call 0x000000000F5fcD35885BfE4c700042cE7cb39554 "versionName()(string)" --rpc-url sepolia
 ```
 
 ### After an upgrade
@@ -320,6 +346,12 @@ function isImplementationRegisteredFor(address implementation, uint8 category) e
 function latestImplementation(uint8 category) external view returns (address);
 function getPastImplementations(uint8 category) external view returns (address[] memory);
 
+// Config — opaque keys; unset keys read as zero
+function getAddress(bytes32 key) external view returns (address);
+function setAddress(bytes32 key, address value) external;
+function getUint(bytes32 key) external view returns (uint256);
+function setUint(bytes32 key, uint256 value) external;
+
 // Events
 event AssetAdded(address indexed assetAddress, uint8 indexed category);
 event AssetRemoved(address indexed assetAddress);
@@ -327,17 +359,21 @@ event ProtocolAdded(address indexed protocolAddress, uint8 indexed category);
 event ProtocolDeprecated(address indexed protocolAddress);
 event ImplementationRegistered(address indexed implementation);
 event ImplementationUnregistered(address indexed implementation);
+event ConfigSet(bytes32 indexed key, address value);
+event ConfigUintSet(bytes32 indexed key, uint256 value);
 ```
 
 ### Errors
 
 | Error | When |
 |-------|------|
-| `NotDeployer()` | `initialize` called with `tx.origin != DEPLOYER`, or an upgrade off `BittyV1GuardBootstrap` attempted by anyone else |
+| `NotDeployer()` | `initialize` on the proxy called with `tx.origin != DEPLOYER` |
+| `DeployerError()` | Upgrade off `BittyV1GuardBootstrap` attempted with `tx.origin != DEPLOYER` |
 | `LengthMismatch()` | Address and category arrays differ in length |
 | `NotRegisteredProtocol(address)` | `deprecateProtocols` targets an address that is not registered |
 | `NotRegisteredImplementation(address)` | `retireImplementations` targets an address that is not a past implementation of that category |
-| `AddressZero()` | `setImplementation` given a zero implementation or a zero category |
+| `CategoryZero()` | `setImplementation` given category `0` |
+| `AddressZero()` | `setImplementation` given a zero implementation |
 
 ### Design notes
 
@@ -345,7 +381,9 @@ event ImplementationUnregistered(address indexed implementation);
 
 **Re-adding.** Registering an asset or protocol already active with the same category is a no-op (no event). Re-registering a deprecated protocol clears its deprecation flag and returns it to the active set.
 
-**Stable coins.** There is no `isStableCoinRegistered` — check `isAssetRegistered(token) && assetCategory(token) == ASSET_STABLE_COIN`.
+**Stable coins.** Treat a token as a stable coin when `isAssetRegistered(token) && assetCategory(token) & ASSET_STABLE_COIN != 0`.
+
+**Config.** Deploy scripts may set `keccak256("bitty.owner")` and `keccak256("bitty.gasWrapped")` via `_configure` after `initialize`. Vaults read these with `getAddress`; keys are conventions, not enforced by the guard.
 
 **Implementations.** Each category holds one `latestImplementation` plus a set of past ones. `setImplementation` promotes the incoming address and demotes the outgoing one into that set, so accounts that have not yet upgraded stay valid — `isImplementationRegisteredFor` accepts current *or* past. `retireImplementations` removes entries from the past set, which forces those accounts to upgrade before they can upgrade again; it cannot remove the current implementation, and it reverts on an address that was never there rather than passing silently. The registry carries no timelock of its own — the review delay is enforced by the governance `TimelockController` holding `IMPLEMENTATION_MANAGER_ROLE`.
 
@@ -362,13 +400,17 @@ src/
 script/
   BaseDeploy.sol            # Shared deploy harness (TOML config, address persistence, CREATE2)
   DeployGuard.sol           # The deploy itself: salt, bootstrap, proxy, upgrade, initialize
-  BittyV1GuardMainnet.s.sol # Per chain: which assets and protocols to register, nothing else
+  BittyV1GuardMainnet.s.sol   # Per chain: assets at initialize (+ config where used)
   BittyV1GuardBase.s.sol
+  BittyV1GuardArbitrum.s.sol
   BittyV1GuardSepolia.s.sol
+  BittyV1GuardRobinhood.s.sol
 deployments/
-  mainnet.toml              # Chain-specific token addresses + deployed guard address
+  mainnet.toml                # Chain RPC, token addresses, BITTY_GUARD target
   base.toml
+  arbitrum.toml
   sepolia.toml
+  robinhood.toml
 test/
   local/BittyV1Guard.t.sol  # Unit tests — asset / protocol / implementation registries
 ```

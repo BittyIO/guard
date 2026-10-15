@@ -7,14 +7,21 @@ import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UU
 import "forge-std/console.sol";
 import {Test} from "lib/forge-std/src/Test.sol";
 import {BittyV1Guard} from "../../src/BittyV1Guard.sol";
-import {BittyV1GuardBootstrap} from "../../src/BittyV1GuardBootstrap.sol";
+import {BittyV1GuardBootstrap, DeployerError} from "../../src/BittyV1GuardBootstrap.sol";
 import {
     IBittyV1Guard,
     NotDeployer,
     LengthMismatch,
     NotRegisteredProtocol,
     IMPLEMENTATION_VAULT,
-    NotRegisteredImplementation
+    NotRegisteredImplementation,
+    ASSET_STABLE_COIN,
+    ASSET_CRYPTO,
+    PROTOCOL_STAKING,
+    PROTOCOL_LENDING,
+    PROTOCOL_MARKET_TRADE,
+    PROTOCOL_INTENT,
+    PROTOCOL_MARKET_MAKER
 } from "../../src/interfaces/IBittyV1Guard.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
 
@@ -22,15 +29,11 @@ contract BittyV1GuardTest is Test {
     // The registry is generic over category; this stands in for any second one.
     uint8 internal constant OTHER_CATEGORY = 2;
 
-    uint8 internal constant LENDING_ID = 1;
-    uint8 internal constant STAKING_ID = 2;
-    uint8 internal constant AMM_ID = 3;
-    uint8 internal constant INTENT_ID = 4;
-
     BittyV1Guard public bittyGuard;
     address public deployAdmin;
     address public protocolOwner;
-    address public ammProtocol;
+    address public marketMakerProtocol;
+    address public marketTradeProtocol;
     address public lendingProtocol;
     address public stakingProtocol;
     address public intentProtocol;
@@ -42,7 +45,8 @@ contract BittyV1GuardTest is Test {
     address[] public stableCoins;
     address[] public lendingProtocols;
     address[] public stakingProtocols;
-    address[] public ammProtocols;
+    address[] public marketMakerProtocols;
+    address[] public marketTradeProtocols;
     address[] public intentProtocols;
 
     /// Deploys the guard the way production does: an implementation behind an ERC-1967 proxy, with
@@ -57,7 +61,8 @@ contract BittyV1GuardTest is Test {
 
     function setUp() public {
         protocolOwner = makeAddr("protocolOwner");
-        ammProtocol = makeAddr("ammProtocol");
+        marketMakerProtocol = makeAddr("marketMakerProtocol");
+        marketTradeProtocol = makeAddr("marketTradeProtocol");
         lendingProtocol = makeAddr("lendingProtocol");
         stakingProtocol = makeAddr("stakingProtocol");
         intentProtocol = makeAddr("intentProtocol");
@@ -85,8 +90,10 @@ contract BittyV1GuardTest is Test {
         lendingProtocols[0] = lendingProtocol;
         stakingProtocols = new address[](1);
         stakingProtocols[0] = stakingProtocol;
-        ammProtocols = new address[](1);
-        ammProtocols[0] = ammProtocol;
+        marketMakerProtocols = new address[](1);
+        marketMakerProtocols[0] = marketMakerProtocol;
+        marketTradeProtocols = new address[](1);
+        marketTradeProtocols[0] = marketTradeProtocol;
         intentProtocols = new address[](1);
         intentProtocols[0] = intentProtocol;
     }
@@ -127,8 +134,8 @@ contract BittyV1GuardTest is Test {
     /// Upgrading the guard is the highest privilege in the system: default admin only.
     function test_OnlyAdminCanUpgradeTheGuard() public {
         vm.startPrank(protocolOwner);
-        bittyGuard.addAssets(assets, _cats(assets.length, CRYPTO_CAT));
-        bittyGuard.addProtocols(ammProtocols, _cats(ammProtocols.length, AMM_ID));
+        bittyGuard.addAssets(assets, _cats(assets.length, ASSET_CRYPTO));
+        bittyGuard.addProtocols(marketMakerProtocols, _cats(marketMakerProtocols.length, PROTOCOL_MARKET_MAKER));
         vm.stopPrank();
 
         BittyV1Guard next = new BittyV1Guard();
@@ -143,13 +150,13 @@ contract BittyV1GuardTest is Test {
         // And so do the registries, which is what a live upgrade actually risks - every deployed vault
         // reads them on every trade, so losing one would brick the fleet rather than just the guard.
         assertTrue(bittyGuard.isAssetRegistered(assets[0]), "assets survived");
-        assertTrue(bittyGuard.isProtocolRegistered(ammProtocol), "protocols survived");
+        assertTrue(bittyGuard.isProtocolRegistered(marketMakerProtocol), "protocols survived");
         assertEq(bittyGuard.versionName(), "1.0.0", "and the new code is the code answering");
     }
 
     function test_AddRegisteredAssets() public {
         vm.prank(protocolOwner);
-        bittyGuard.addAssets(assets, _cats(assets.length, CRYPTO_CAT));
+        bittyGuard.addAssets(assets, _cats(assets.length, ASSET_CRYPTO));
         assertTrue(bittyGuard.isAssetRegistered(address(mockWETH)));
         assertTrue(bittyGuard.isAssetRegistered(address(mockWBTC)));
     }
@@ -163,7 +170,7 @@ contract BittyV1GuardTest is Test {
 
     function test_AddStableCoins() public {
         vm.prank(protocolOwner);
-        bittyGuard.addAssets(stableCoins, _cats(stableCoins.length, STABLE_CAT));
+        bittyGuard.addAssets(stableCoins, _cats(stableCoins.length, ASSET_STABLE_COIN));
         assertTrue(_isStable(address(mockUSDT)));
         assertTrue(_isStable(address(mockUSDC)));
     }
@@ -176,12 +183,12 @@ contract BittyV1GuardTest is Test {
     }
 
     function test_AddLendingProtocols() public {
-        _addProtocols(lendingProtocols, LENDING_ID);
+        _addProtocols(lendingProtocols, PROTOCOL_LENDING);
         assertTrue(bittyGuard.isProtocolRegistered(lendingProtocol));
     }
 
     function test_DeprecateLendingProtocols() public {
-        _addProtocols(lendingProtocols, LENDING_ID);
+        _addProtocols(lendingProtocols, PROTOCOL_LENDING);
         assertTrue(bittyGuard.isProtocolRegistered(lendingProtocol));
         vm.prank(protocolOwner);
         bittyGuard.deprecateProtocols(lendingProtocols);
@@ -201,13 +208,13 @@ contract BittyV1GuardTest is Test {
     }
 
     function test_AddStakingProtocols() public {
-        _addProtocols(stakingProtocols, STAKING_ID);
+        _addProtocols(stakingProtocols, PROTOCOL_STAKING);
         assertTrue(bittyGuard.isProtocolRegistered(stakingProtocol));
         assertFalse(bittyGuard.isProtocolDeprecated(stakingProtocol));
     }
 
     function test_DeprecateStakingProtocols() public {
-        _addProtocols(stakingProtocols, STAKING_ID);
+        _addProtocols(stakingProtocols, PROTOCOL_STAKING);
         vm.prank(protocolOwner);
         bittyGuard.deprecateProtocols(stakingProtocols);
         assertFalse(bittyGuard.isProtocolRegistered(stakingProtocol));
@@ -215,56 +222,56 @@ contract BittyV1GuardTest is Test {
         _assertProtocolsAre(new address[](0));
     }
 
-    function test_AddAMMProtocols() public {
-        _addProtocols(ammProtocols, AMM_ID);
-        assertTrue(bittyGuard.isProtocolRegistered(ammProtocol));
-        assertFalse(bittyGuard.isProtocolDeprecated(ammProtocol));
+    function test_AddMarketMakerProtocols() public {
+        _addProtocols(marketMakerProtocols, PROTOCOL_MARKET_MAKER);
+        assertTrue(bittyGuard.isProtocolRegistered(marketMakerProtocol));
+        assertFalse(bittyGuard.isProtocolDeprecated(marketMakerProtocol));
     }
 
-    function test_DeprecateAMMProtocols() public {
-        _addProtocols(ammProtocols, AMM_ID);
+    function test_DeprecateMarketMakerProtocols() public {
+        _addProtocols(marketMakerProtocols, PROTOCOL_MARKET_MAKER);
         vm.prank(protocolOwner);
-        bittyGuard.deprecateProtocols(ammProtocols);
-        assertFalse(bittyGuard.isProtocolRegistered(ammProtocol));
-        assertTrue(bittyGuard.isProtocolDeprecated(ammProtocol));
+        bittyGuard.deprecateProtocols(marketMakerProtocols);
+        assertFalse(bittyGuard.isProtocolRegistered(marketMakerProtocol));
+        assertTrue(bittyGuard.isProtocolDeprecated(marketMakerProtocol));
         _assertProtocolsAre(new address[](0));
     }
 
-    function test_DeprecateAMMProtocolsAllowsAllDeprecated() public {
-        address[] memory ammProtocolAddresses = new address[](1);
-        ammProtocolAddresses[0] = ammProtocol;
-        _addProtocols(ammProtocolAddresses, AMM_ID);
+    function test_DeprecateMarketMakerProtocolsAllowsAllDeprecated() public {
+        address[] memory marketMakerProtocolAddresses = new address[](1);
+        marketMakerProtocolAddresses[0] = marketMakerProtocol;
+        _addProtocols(marketMakerProtocolAddresses, PROTOCOL_MARKET_MAKER);
         vm.prank(protocolOwner);
-        bittyGuard.deprecateProtocols(ammProtocolAddresses);
-        assertFalse(bittyGuard.isProtocolRegistered(ammProtocol));
-        assertTrue(bittyGuard.isProtocolDeprecated(ammProtocol));
+        bittyGuard.deprecateProtocols(marketMakerProtocolAddresses);
+        assertFalse(bittyGuard.isProtocolRegistered(marketMakerProtocol));
+        assertTrue(bittyGuard.isProtocolDeprecated(marketMakerProtocol));
     }
 
-    function test_AddAMMProtocolsClearsDeprecatedFlag() public {
-        _addProtocols(ammProtocols, AMM_ID);
+    function test_AddMarketMakerProtocolsClearsDeprecatedFlag() public {
+        _addProtocols(marketMakerProtocols, PROTOCOL_MARKET_MAKER);
         vm.prank(protocolOwner);
-        bittyGuard.deprecateProtocols(ammProtocols);
-        _addProtocols(ammProtocols, AMM_ID);
-        assertTrue(bittyGuard.isProtocolRegistered(ammProtocol));
-        assertFalse(bittyGuard.isProtocolDeprecated(ammProtocol));
+        bittyGuard.deprecateProtocols(marketMakerProtocols);
+        _addProtocols(marketMakerProtocols, PROTOCOL_MARKET_MAKER);
+        assertTrue(bittyGuard.isProtocolRegistered(marketMakerProtocol));
+        assertFalse(bittyGuard.isProtocolDeprecated(marketMakerProtocol));
     }
 
     function test_AddRegisteredNeedToRemoveDeprecated() public {
-        _addProtocols(lendingProtocols, LENDING_ID);
+        _addProtocols(lendingProtocols, PROTOCOL_LENDING);
         vm.prank(protocolOwner);
         bittyGuard.deprecateProtocols(lendingProtocols);
-        _addProtocols(lendingProtocols, LENDING_ID);
+        _addProtocols(lendingProtocols, PROTOCOL_LENDING);
         assertTrue(bittyGuard.isProtocolRegistered(lendingProtocol));
         assertFalse(bittyGuard.isProtocolDeprecated(lendingProtocol));
     }
 
     function test_AddIntentProtocols() public {
-        _addProtocols(intentProtocols, INTENT_ID);
+        _addProtocols(intentProtocols, PROTOCOL_INTENT);
         assertTrue(bittyGuard.isProtocolRegistered(intentProtocol));
     }
 
     function test_DeprecateIntentProtocols() public {
-        _addProtocols(intentProtocols, INTENT_ID);
+        _addProtocols(intentProtocols, PROTOCOL_INTENT);
         vm.prank(protocolOwner);
         bittyGuard.deprecateProtocols(intentProtocols);
         assertFalse(bittyGuard.isProtocolRegistered(intentProtocol));
@@ -273,23 +280,23 @@ contract BittyV1GuardTest is Test {
     }
 
     function test_AddIntentProtocolsClearsDeprecatedFlag() public {
-        _addProtocols(intentProtocols, INTENT_ID);
+        _addProtocols(intentProtocols, PROTOCOL_INTENT);
         vm.prank(protocolOwner);
         bittyGuard.deprecateProtocols(intentProtocols);
-        _addProtocols(intentProtocols, INTENT_ID);
+        _addProtocols(intentProtocols, PROTOCOL_INTENT);
         assertTrue(bittyGuard.isProtocolRegistered(intentProtocol));
         assertFalse(bittyGuard.isProtocolDeprecated(intentProtocol));
     }
 
     function test_GetAssets() public {
         vm.prank(protocolOwner);
-        bittyGuard.addAssets(assets, _cats(assets.length, CRYPTO_CAT));
+        bittyGuard.addAssets(assets, _cats(assets.length, ASSET_CRYPTO));
         _assertAssetsAre(assets);
     }
 
     function test_GetAssetsAfterRemove() public {
         vm.prank(protocolOwner);
-        bittyGuard.addAssets(assets, _cats(assets.length, CRYPTO_CAT));
+        bittyGuard.addAssets(assets, _cats(assets.length, ASSET_CRYPTO));
         address[] memory toRemove = new address[](1);
         toRemove[0] = address(mockWETH);
         vm.prank(protocolOwner);
@@ -301,13 +308,13 @@ contract BittyV1GuardTest is Test {
 
     function test_GetStableCoins() public {
         vm.prank(protocolOwner);
-        bittyGuard.addAssets(stableCoins, _cats(stableCoins.length, STABLE_CAT));
+        bittyGuard.addAssets(stableCoins, _cats(stableCoins.length, ASSET_STABLE_COIN));
         _assertStableCoinsAre(stableCoins);
     }
 
     function test_GetStableCoinsAfterRemove() public {
         vm.prank(protocolOwner);
-        bittyGuard.addAssets(stableCoins, _cats(stableCoins.length, STABLE_CAT));
+        bittyGuard.addAssets(stableCoins, _cats(stableCoins.length, ASSET_STABLE_COIN));
         address[] memory toRemove = new address[](1);
         toRemove[0] = address(mockUSDT);
         vm.prank(protocolOwner);
@@ -317,26 +324,46 @@ contract BittyV1GuardTest is Test {
         _assertStableCoinsAre(expected);
     }
 
-    function test_GetAMMProtocols() public {
-        _addProtocols(ammProtocols, AMM_ID);
-        _assertProtocolsAre(ammProtocols);
+    function test_AddMarketTradeProtocols() public {
+        _addProtocols(marketTradeProtocols, PROTOCOL_MARKET_TRADE);
+        assertTrue(bittyGuard.isProtocolRegistered(marketTradeProtocol));
+        assertFalse(bittyGuard.isProtocolDeprecated(marketTradeProtocol));
     }
 
-    function test_GetAMMProtocolsAfterPartialDeprecate() public {
-        address extraAmm = makeAddr("extraAmm");
-        address[] memory twoAmms = new address[](2);
-        twoAmms[0] = ammProtocol;
-        twoAmms[1] = extraAmm;
-        _addProtocols(twoAmms, AMM_ID);
+    function test_DeprecateMarketTradeProtocols() public {
+        _addProtocols(marketTradeProtocols, PROTOCOL_MARKET_TRADE);
+        vm.prank(protocolOwner);
+        bittyGuard.deprecateProtocols(marketTradeProtocols);
+        assertFalse(bittyGuard.isProtocolRegistered(marketTradeProtocol));
+        assertTrue(bittyGuard.isProtocolDeprecated(marketTradeProtocol));
+        _assertProtocolsAre(new address[](0));
+    }
+
+    function test_GetMarketMakerProtocols() public {
+        _addProtocols(marketMakerProtocols, PROTOCOL_MARKET_MAKER);
+        _assertProtocolsAre(marketMakerProtocols);
+    }
+
+    function test_GetMarketTradeProtocols() public {
+        _addProtocols(marketTradeProtocols, PROTOCOL_MARKET_TRADE);
+        _assertProtocolsAre(marketTradeProtocols);
+    }
+
+    function test_GetMarketMakerProtocolsAfterPartialDeprecate() public {
+        address extraMarketMaker = makeAddr("extraMarketMaker");
+        address[] memory twoMarketMakers = new address[](2);
+        twoMarketMakers[0] = marketMakerProtocol;
+        twoMarketMakers[1] = extraMarketMaker;
+        _addProtocols(twoMarketMakers, PROTOCOL_MARKET_MAKER);
         address[] memory toDeprecate = new address[](1);
-        toDeprecate[0] = extraAmm;
+        toDeprecate[0] = extraMarketMaker;
         vm.prank(protocolOwner);
         bittyGuard.deprecateProtocols(toDeprecate);
         address[] memory expected = new address[](1);
-        expected[0] = ammProtocol;
+        expected[0] = marketMakerProtocol;
         _assertProtocolsAre(expected);
-        assertTrue(bittyGuard.isProtocolDeprecated(extraAmm));
-        assertFalse(bittyGuard.isProtocolRegistered(extraAmm));
+        assertTrue(bittyGuard.isProtocolDeprecated(extraMarketMaker));
+        assertFalse(bittyGuard.isProtocolRegistered(extraMarketMaker));
     }
 
     function test_GetLendingProtocolsExcludesDeprecated() public {
@@ -344,7 +371,7 @@ contract BittyV1GuardTest is Test {
         address[] memory twoProtocols = new address[](2);
         twoProtocols[0] = lendingProtocol;
         twoProtocols[1] = lendingProtocolB;
-        _addProtocols(twoProtocols, LENDING_ID);
+        _addProtocols(twoProtocols, PROTOCOL_LENDING);
         address[] memory toDeprecate = new address[](1);
         toDeprecate[0] = lendingProtocol;
         vm.prank(protocolOwner);
@@ -358,11 +385,11 @@ contract BittyV1GuardTest is Test {
     }
 
     function test_GetLendingProtocolsReaddAfterDeprecate() public {
-        _addProtocols(lendingProtocols, LENDING_ID);
+        _addProtocols(lendingProtocols, PROTOCOL_LENDING);
         vm.prank(protocolOwner);
         bittyGuard.deprecateProtocols(lendingProtocols);
         _assertProtocolsAre(new address[](0));
-        _addProtocols(lendingProtocols, LENDING_ID);
+        _addProtocols(lendingProtocols, PROTOCOL_LENDING);
         _assertProtocolsAre(lendingProtocols);
     }
 
@@ -371,7 +398,7 @@ contract BittyV1GuardTest is Test {
         address[] memory twoProtocols = new address[](2);
         twoProtocols[0] = stakingProtocol;
         twoProtocols[1] = stakingProtocolB;
-        _addProtocols(twoProtocols, STAKING_ID);
+        _addProtocols(twoProtocols, PROTOCOL_STAKING);
         address[] memory toDeprecate = new address[](1);
         toDeprecate[0] = stakingProtocol;
         vm.prank(protocolOwner);
@@ -386,7 +413,7 @@ contract BittyV1GuardTest is Test {
         address[] memory twoProtocols = new address[](2);
         twoProtocols[0] = intentProtocol;
         twoProtocols[1] = intentProtocolB;
-        _addProtocols(twoProtocols, INTENT_ID);
+        _addProtocols(twoProtocols, PROTOCOL_INTENT);
         address[] memory toDeprecate = new address[](1);
         toDeprecate[0] = intentProtocol;
         vm.prank(protocolOwner);
@@ -399,26 +426,28 @@ contract BittyV1GuardTest is Test {
     function test_InitializeSeedsEveryRegistry() public {
         vm.startPrank(deployAdmin, deployAdmin);
         BittyV1Guard guardImpl = new BittyV1Guard();
-        address[] memory allProtocols_ = new address[](4);
+        address[] memory allProtocols_ = new address[](5);
         allProtocols_[0] = lendingProtocol;
         allProtocols_[1] = stakingProtocol;
-        allProtocols_[2] = ammProtocol;
+        allProtocols_[2] = marketTradeProtocol;
         allProtocols_[3] = intentProtocol;
-        uint8[] memory categories = new uint8[](4);
-        categories[0] = LENDING_ID;
-        categories[1] = STAKING_ID;
-        categories[2] = AMM_ID;
-        categories[3] = INTENT_ID;
+        allProtocols_[4] = marketMakerProtocol;
+        uint8[] memory categories = new uint8[](5);
+        categories[0] = PROTOCOL_LENDING;
+        categories[1] = PROTOCOL_STAKING;
+        categories[2] = PROTOCOL_MARKET_TRADE;
+        categories[3] = PROTOCOL_INTENT;
+        categories[4] = PROTOCOL_MARKET_MAKER;
         // Assets and stable coins seed through ONE list now, told apart by category.
         address[] memory seedAssets = new address[](assets.length + stableCoins.length);
         uint8[] memory seedCategories = new uint8[](seedAssets.length);
         for (uint256 i = 0; i < assets.length; i++) {
             seedAssets[i] = assets[i];
-            seedCategories[i] = CRYPTO_CAT;
+            seedCategories[i] = ASSET_CRYPTO;
         }
         for (uint256 i = 0; i < stableCoins.length; i++) {
             seedAssets[assets.length + i] = stableCoins[i];
-            seedCategories[assets.length + i] = STABLE_CAT;
+            seedCategories[assets.length + i] = ASSET_STABLE_COIN;
         }
         BittyV1Guard guard = BittyV1Guard(
             address(
@@ -435,18 +464,20 @@ contract BittyV1GuardTest is Test {
         }
         for (uint256 i = 0; i < stableCoins.length; i++) {
             assertTrue(
-                (guard.isAssetRegistered(stableCoins[i]) && guard.assetCategory(stableCoins[i]) == STABLE_CAT),
+                (guard.isAssetRegistered(stableCoins[i]) && guard.assetCategory(stableCoins[i]) == ASSET_STABLE_COIN),
                 "seeded stable coin missing"
             );
         }
         assertTrue(guard.isProtocolRegistered(lendingProtocol));
         assertTrue(guard.isProtocolRegistered(stakingProtocol));
-        assertTrue(guard.isProtocolRegistered(ammProtocol));
+        assertTrue(guard.isProtocolRegistered(marketTradeProtocol));
         assertTrue(guard.isProtocolRegistered(intentProtocol));
-        assertEq(guard.protocolCategory(lendingProtocol), LENDING_ID);
-        assertEq(guard.protocolCategory(stakingProtocol), STAKING_ID);
-        assertEq(guard.protocolCategory(ammProtocol), AMM_ID);
-        assertEq(guard.protocolCategory(intentProtocol), INTENT_ID);
+        assertTrue(guard.isProtocolRegistered(marketMakerProtocol));
+        assertEq(guard.protocolCategory(lendingProtocol), PROTOCOL_LENDING);
+        assertEq(guard.protocolCategory(stakingProtocol), PROTOCOL_STAKING);
+        assertEq(guard.protocolCategory(marketTradeProtocol), PROTOCOL_MARKET_TRADE);
+        assertEq(guard.protocolCategory(intentProtocol), PROTOCOL_INTENT);
+        assertEq(guard.protocolCategory(marketMakerProtocol), PROTOCOL_MARKET_MAKER);
     }
 
     function test_DefaultAdminTransferDelay() public view {
@@ -495,19 +526,21 @@ contract BittyV1GuardTest is Test {
     }
 
     function test_AddProtocol_acceptsEachCategory() public {
-        _addProtocols(lendingProtocols, LENDING_ID);
-        _addProtocols(stakingProtocols, STAKING_ID);
-        _addProtocols(ammProtocols, AMM_ID);
-        _addProtocols(intentProtocols, INTENT_ID);
+        _addProtocols(lendingProtocols, PROTOCOL_LENDING);
+        _addProtocols(stakingProtocols, PROTOCOL_STAKING);
+        _addProtocols(marketTradeProtocols, PROTOCOL_MARKET_TRADE);
+        _addProtocols(intentProtocols, PROTOCOL_INTENT);
+        _addProtocols(marketMakerProtocols, PROTOCOL_MARKET_MAKER);
 
         assertTrue(bittyGuard.isProtocolRegistered(lendingProtocol));
         assertTrue(bittyGuard.isProtocolRegistered(stakingProtocol));
-        assertTrue(bittyGuard.isProtocolRegistered(ammProtocol));
+        assertTrue(bittyGuard.isProtocolRegistered(marketTradeProtocol));
         assertTrue(bittyGuard.isProtocolRegistered(intentProtocol));
+        assertTrue(bittyGuard.isProtocolRegistered(marketMakerProtocol));
     }
 
     function test_IsProtocolRegistered_falseAfterDeprecate() public {
-        _addProtocols(lendingProtocols, LENDING_ID);
+        _addProtocols(lendingProtocols, PROTOCOL_LENDING);
         vm.prank(protocolOwner);
         bittyGuard.deprecateProtocols(lendingProtocols);
         assertFalse(bittyGuard.isProtocolRegistered(lendingProtocol));
@@ -523,21 +556,21 @@ contract BittyV1GuardTest is Test {
         mixed[0] = lendingProtocol;
         mixed[1] = stakingProtocol;
         uint8[] memory categories = new uint8[](2);
-        categories[0] = LENDING_ID;
-        categories[1] = STAKING_ID;
+        categories[0] = PROTOCOL_LENDING;
+        categories[1] = PROTOCOL_STAKING;
 
         vm.prank(manager);
         bittyGuard.addProtocols(mixed, categories);
 
         assertTrue(bittyGuard.isProtocolRegistered(lendingProtocol));
         assertTrue(bittyGuard.isProtocolRegistered(stakingProtocol));
-        assertEq(bittyGuard.protocolCategory(lendingProtocol), LENDING_ID);
-        assertEq(bittyGuard.protocolCategory(stakingProtocol), STAKING_ID);
+        assertEq(bittyGuard.protocolCategory(lendingProtocol), PROTOCOL_LENDING);
+        assertEq(bittyGuard.protocolCategory(stakingProtocol), PROTOCOL_STAKING);
     }
 
     function test_DeprecatedProtocolIsNoLongerRegistered() public {
-        _addProtocols(lendingProtocols, LENDING_ID);
-        _addProtocols(stakingProtocols, STAKING_ID);
+        _addProtocols(lendingProtocols, PROTOCOL_LENDING);
+        _addProtocols(stakingProtocols, PROTOCOL_STAKING);
         vm.prank(protocolOwner);
         bittyGuard.deprecateProtocols(lendingProtocols);
 
@@ -546,28 +579,30 @@ contract BittyV1GuardTest is Test {
         _assertProtocolsAre(remaining);
         assertTrue(bittyGuard.isProtocolDeprecated(lendingProtocol));
         assertFalse(bittyGuard.isProtocolDeprecated(stakingProtocol));
-        assertEq(bittyGuard.protocolCategory(lendingProtocol), LENDING_ID);
+        assertEq(bittyGuard.protocolCategory(lendingProtocol), PROTOCOL_LENDING);
     }
 
     function test_AddProtocols_reRegisteringClearsDeprecation() public {
-        _addProtocols(lendingProtocols, LENDING_ID);
+        _addProtocols(lendingProtocols, PROTOCOL_LENDING);
         vm.prank(protocolOwner);
         bittyGuard.deprecateProtocols(lendingProtocols);
-        _addProtocols(lendingProtocols, LENDING_ID);
+        _addProtocols(lendingProtocols, PROTOCOL_LENDING);
         assertFalse(bittyGuard.isProtocolDeprecated(lendingProtocol));
         assertTrue(bittyGuard.isProtocolRegistered(lendingProtocol));
     }
 
     function test_AddProtocols_recordsSuppliedCategory() public {
-        _addProtocols(lendingProtocols, LENDING_ID);
-        _addProtocols(stakingProtocols, STAKING_ID);
-        _addProtocols(ammProtocols, AMM_ID);
-        _addProtocols(intentProtocols, INTENT_ID);
+        _addProtocols(lendingProtocols, PROTOCOL_LENDING);
+        _addProtocols(stakingProtocols, PROTOCOL_STAKING);
+        _addProtocols(marketTradeProtocols, PROTOCOL_MARKET_TRADE);
+        _addProtocols(intentProtocols, PROTOCOL_INTENT);
+        _addProtocols(marketMakerProtocols, PROTOCOL_MARKET_MAKER);
 
-        assertEq(bittyGuard.protocolCategory(lendingProtocol), LENDING_ID);
-        assertEq(bittyGuard.protocolCategory(stakingProtocol), STAKING_ID);
-        assertEq(bittyGuard.protocolCategory(ammProtocol), AMM_ID);
-        assertEq(bittyGuard.protocolCategory(intentProtocol), INTENT_ID);
+        assertEq(bittyGuard.protocolCategory(lendingProtocol), PROTOCOL_LENDING);
+        assertEq(bittyGuard.protocolCategory(stakingProtocol), PROTOCOL_STAKING);
+        assertEq(bittyGuard.protocolCategory(marketTradeProtocol), PROTOCOL_MARKET_TRADE);
+        assertEq(bittyGuard.protocolCategory(intentProtocol), PROTOCOL_INTENT);
+        assertEq(bittyGuard.protocolCategory(marketMakerProtocol), PROTOCOL_MARKET_MAKER);
     }
 
     function test_ProtocolCategory_isZeroForUnregistered() public {
@@ -586,16 +621,16 @@ contract BittyV1GuardTest is Test {
 
         vm.prank(assetOnly);
         vm.expectRevert();
-        bittyGuard.addProtocols(lendingProtocols, _fillCategories(LENDING_ID, 1));
+        bittyGuard.addProtocols(lendingProtocols, _fillCategories(PROTOCOL_LENDING, 1));
 
         vm.prank(protocolOnly);
         vm.expectRevert();
-        bittyGuard.addAssets(assets, _cats(assets.length, CRYPTO_CAT));
+        bittyGuard.addAssets(assets, _cats(assets.length, ASSET_CRYPTO));
 
         vm.prank(protocolOnly);
-        bittyGuard.addProtocols(lendingProtocols, _fillCategories(LENDING_ID, 1));
+        bittyGuard.addProtocols(lendingProtocols, _fillCategories(PROTOCOL_LENDING, 1));
         vm.prank(assetOnly);
-        bittyGuard.addAssets(assets, _cats(assets.length, CRYPTO_CAT));
+        bittyGuard.addAssets(assets, _cats(assets.length, ASSET_CRYPTO));
         assertTrue(bittyGuard.isProtocolRegistered(lendingProtocol));
         assertTrue(bittyGuard.isAssetRegistered(address(mockWETH)));
     }
@@ -607,7 +642,7 @@ contract BittyV1GuardTest is Test {
         bittyGuard.grantRole(assetRole, assetOnly);
 
         vm.prank(assetOnly);
-        bittyGuard.addAssets(stableCoins, _cats(stableCoins.length, STABLE_CAT));
+        bittyGuard.addAssets(stableCoins, _cats(stableCoins.length, ASSET_STABLE_COIN));
         assertTrue(_isStable(address(mockUSDC)));
 
         vm.prank(assetOnly);
@@ -616,7 +651,7 @@ contract BittyV1GuardTest is Test {
     }
 
     function test_DeprecateProtocols_worksWhenProtocolHasNoCode() public {
-        _addProtocols(lendingProtocols, LENDING_ID);
+        _addProtocols(lendingProtocols, PROTOCOL_LENDING);
         vm.etch(lendingProtocol, "");
 
         vm.prank(protocolOwner);
@@ -637,7 +672,7 @@ contract BittyV1GuardTest is Test {
         protocols[0] = address(0);
         protocols[1] = lendingProtocol;
         uint8[] memory categories = new uint8[](2);
-        categories[0] = LENDING_ID;
+        categories[0] = PROTOCOL_LENDING;
         categories[1] = 0;
 
         vm.prank(protocolOwner);
@@ -651,18 +686,18 @@ contract BittyV1GuardTest is Test {
         address[] memory one = new address[](1);
         one[0] = address(mockWETH);
         vm.expectEmit(true, false, false, true, address(bittyGuard));
-        emit IBittyV1Guard.AssetAdded(address(mockWETH), CRYPTO_CAT);
+        emit IBittyV1Guard.AssetAdded(address(mockWETH), ASSET_CRYPTO);
         vm.prank(protocolOwner);
-        bittyGuard.addAssets(one, _cats(one.length, CRYPTO_CAT));
+        bittyGuard.addAssets(one, _cats(one.length, ASSET_CRYPTO));
     }
 
     function test_AddAssets_emitsNothingWhenAlreadyRegistered() public {
         address[] memory one = new address[](1);
         one[0] = address(mockWETH);
         vm.startPrank(protocolOwner);
-        bittyGuard.addAssets(one, _cats(one.length, CRYPTO_CAT));
+        bittyGuard.addAssets(one, _cats(one.length, ASSET_CRYPTO));
         vm.recordLogs();
-        bittyGuard.addAssets(one, _cats(one.length, CRYPTO_CAT));
+        bittyGuard.addAssets(one, _cats(one.length, ASSET_CRYPTO));
         vm.stopPrank();
         assertEq(vm.getRecordedLogs().length, 0, "re-adding emitted a log");
     }
@@ -671,7 +706,7 @@ contract BittyV1GuardTest is Test {
         address[] memory one = new address[](1);
         one[0] = address(mockWETH);
         vm.startPrank(protocolOwner);
-        bittyGuard.addAssets(one, _cats(one.length, CRYPTO_CAT));
+        bittyGuard.addAssets(one, _cats(one.length, ASSET_CRYPTO));
         vm.expectEmit(true, false, false, true, address(bittyGuard));
         emit IBittyV1Guard.AssetRemoved(address(mockWETH));
         bittyGuard.removeAssets(one);
@@ -687,8 +722,8 @@ contract BittyV1GuardTest is Test {
         one[0] = address(mockUSDC);
         vm.startPrank(protocolOwner);
         vm.expectEmit(true, true, false, true, address(bittyGuard));
-        emit IBittyV1Guard.AssetAdded(address(mockUSDC), STABLE_CAT);
-        bittyGuard.addAssets(one, _cats(one.length, STABLE_CAT));
+        emit IBittyV1Guard.AssetAdded(address(mockUSDC), ASSET_STABLE_COIN);
+        bittyGuard.addAssets(one, _cats(one.length, ASSET_STABLE_COIN));
         assertTrue(_isStable(address(mockUSDC)));
         vm.expectEmit(true, false, false, true, address(bittyGuard));
         emit IBittyV1Guard.AssetRemoved(address(mockUSDC));
@@ -700,8 +735,8 @@ contract BittyV1GuardTest is Test {
     function test_Protocol_eventsCarryCategoryOnAdd() public {
         vm.startPrank(protocolOwner);
         vm.expectEmit(true, true, false, true, address(bittyGuard));
-        emit IBittyV1Guard.ProtocolAdded(lendingProtocol, LENDING_ID);
-        bittyGuard.addProtocols(lendingProtocols, _fillCategories(LENDING_ID, 1));
+        emit IBittyV1Guard.ProtocolAdded(lendingProtocol, PROTOCOL_LENDING);
+        bittyGuard.addProtocols(lendingProtocols, _fillCategories(PROTOCOL_LENDING, 1));
 
         vm.expectEmit(true, false, false, true, address(bittyGuard));
         emit IBittyV1Guard.ProtocolDeprecated(lendingProtocol);
@@ -718,7 +753,7 @@ contract BittyV1GuardTest is Test {
         three[1] = b;
         three[2] = c;
         vm.startPrank(protocolOwner);
-        bittyGuard.addAssets(three, _cats(three.length, CRYPTO_CAT));
+        bittyGuard.addAssets(three, _cats(three.length, ASSET_CRYPTO));
 
         address[] memory middle = new address[](1);
         middle[0] = b;
@@ -740,10 +775,10 @@ contract BittyV1GuardTest is Test {
         address[] memory one = new address[](1);
         one[0] = a;
         vm.startPrank(protocolOwner);
-        bittyGuard.addAssets(one, _cats(one.length, CRYPTO_CAT));
+        bittyGuard.addAssets(one, _cats(one.length, ASSET_CRYPTO));
         bittyGuard.removeAssets(one);
         assertFalse(bittyGuard.isAssetRegistered(a));
-        bittyGuard.addAssets(one, _cats(one.length, CRYPTO_CAT));
+        bittyGuard.addAssets(one, _cats(one.length, ASSET_CRYPTO));
         assertTrue(bittyGuard.isAssetRegistered(a));
         bittyGuard.removeAssets(one);
         assertFalse(bittyGuard.isAssetRegistered(a));
@@ -755,7 +790,7 @@ contract BittyV1GuardTest is Test {
         withZero[0] = address(0);
         withZero[1] = address(mockWETH);
         vm.prank(protocolOwner);
-        bittyGuard.addAssets(withZero, _cats(withZero.length, CRYPTO_CAT));
+        bittyGuard.addAssets(withZero, _cats(withZero.length, ASSET_CRYPTO));
         assertFalse(bittyGuard.isAssetRegistered(address(0)));
         assertTrue(bittyGuard.isAssetRegistered(address(mockWETH)));
     }
@@ -787,7 +822,7 @@ contract BittyV1GuardTest is Test {
         address stranger = makeAddr("stranger");
 
         vm.prank(stranger, stranger);
-        vm.expectRevert(NotDeployer.selector);
+        vm.expectRevert(DeployerError.selector);
         UUPSUpgradeable(proxy).upgradeToAndCall(build, "");
 
         vm.prank(deployAdmin, deployAdmin);
@@ -808,9 +843,6 @@ contract BittyV1GuardTest is Test {
     }
 
     address internal constant SIMPLE_CREATE2 = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
-
-    uint8 internal constant CRYPTO_CAT = 2;
-    uint8 internal constant STABLE_CAT = 1;
 
     function _cats(uint256 n, uint8 category) internal pure returns (uint8[] memory out) {
         out = new uint8[](n);
@@ -845,12 +877,17 @@ contract BittyV1GuardTest is Test {
     }
 
     function _isStable(address token) internal view returns (bool) {
-        return bittyGuard.isAssetRegistered(token) && bittyGuard.assetCategory(token) == STABLE_CAT;
+        return bittyGuard.isAssetRegistered(token) && bittyGuard.assetCategory(token) == ASSET_STABLE_COIN;
     }
 
     function _assertProtocolsAre(address[] memory expected) internal view {
-        address[4][4] memory universe =
-            [_pad(lendingProtocols), _pad(stakingProtocols), _pad(ammProtocols), _pad(intentProtocols)];
+        address[4][5] memory universe = [
+            _pad(lendingProtocols),
+            _pad(stakingProtocols),
+            _pad(marketTradeProtocols),
+            _pad(intentProtocols),
+            _pad(marketMakerProtocols)
+        ];
         for (uint256 c = 0; c < universe.length; c++) {
             for (uint256 i = 0; i < universe[c].length; i++) {
                 address p = universe[c][i];
@@ -871,7 +908,7 @@ contract BittyV1GuardTest is Test {
 
     function test_DeprecatedProtocolMovesFromActiveListToDeprecatedList() public {
         vm.startPrank(protocolOwner);
-        bittyGuard.addProtocols(lendingProtocols, _cats(lendingProtocols.length, LENDING_ID));
+        bittyGuard.addProtocols(lendingProtocols, _cats(lendingProtocols.length, PROTOCOL_LENDING));
         bittyGuard.deprecateProtocols(lendingProtocols);
         vm.stopPrank();
 
@@ -893,7 +930,7 @@ contract BittyV1GuardTest is Test {
 
     function test_DeprecateTwiceReverts() public {
         vm.startPrank(protocolOwner);
-        bittyGuard.addProtocols(lendingProtocols, _cats(lendingProtocols.length, LENDING_ID));
+        bittyGuard.addProtocols(lendingProtocols, _cats(lendingProtocols.length, PROTOCOL_LENDING));
         bittyGuard.deprecateProtocols(lendingProtocols);
         vm.expectRevert(abi.encodeWithSelector(NotRegisteredProtocol.selector, lendingProtocol));
         bittyGuard.deprecateProtocols(lendingProtocols);

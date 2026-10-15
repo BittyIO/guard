@@ -3,7 +3,7 @@ pragma solidity ^0.8.34;
 
 import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-error NotDeployer();
+error DeployerError();
 
 /**
  * @title BittyV1GuardBootstrap
@@ -36,6 +36,6 @@ contract BittyV1GuardBootstrap is UUPSUpgradeable {
      *      implementation, which is one call later.
      */
     function _authorizeUpgrade(address) internal view override {
-        if (tx.origin != DEPLOYER) revert NotDeployer();
+        if (tx.origin != DEPLOYER) revert DeployerError();
     }
 }

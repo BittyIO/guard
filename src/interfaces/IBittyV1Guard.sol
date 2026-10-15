@@ -10,18 +10,16 @@ error AddressZero();
 
 uint8 constant ASSET_STABLE_COIN = 1;
 uint8 constant ASSET_CRYPTO = 2;
+uint8 constant ASSET_AMM_LIQUID = 4;
 
-uint8 constant PROTOCOL_LENDING = 1;
-uint8 constant PROTOCOL_STAKING = 2;
-uint8 constant PROTOCOL_AMM = 3;
+uint8 constant PROTOCOL_STAKING = 1;
+uint8 constant PROTOCOL_LENDING = 2;
+uint8 constant PROTOCOL_MARKET_TRADE = 3;
 uint8 constant PROTOCOL_INTENT = 4;
+uint8 constant PROTOCOL_MARKET_MAKER = 5;
 
 uint8 constant IMPLEMENTATION_VAULT = 1;
 
-/**
- * @title Manage the registered assets and protocols (v1).
- * @dev Manage the registered assets and protocols by Bitty.
- */
 interface IBittyV1Guard {
     event AssetAdded(address indexed assetAddress, uint8 indexed category);
     event AssetRemoved(address indexed assetAddress);

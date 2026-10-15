@@ -32,24 +32,15 @@ abstract contract DeployGuard is DeployScript {
     ImmutableCreate2Factory internal constant IMMUTABLE_CREATE2 =
         ImmutableCreate2Factory(0x0000000000FFe8B47B3e2130213B802212439497);
 
-    bytes32 internal constant GUARD_SALT = 0x12ee2de7bf086388b1d560eb95e7191edfab98234688883269660000497b86c8;
+    bytes32 internal constant GUARD_SALT = 0x12ee2de7bf086388b1d560eb95e7191edfab9823345ab48359c214008f709d89;
 
-    /**
-     * @dev The guard proxy's CREATE2 init-code hash: {ERC1967Proxy} creation code plus its constructor
-     *      args (the salt-0 {BittyV1GuardBootstrap}, ""). {GUARD_SALT} was vanity-mined against exactly
-     *      this hash, and the resulting address is a compile-time constant across the vault and
-     *      protocol-store repos. The creation code of both contracts ends in solc's CBOR metadata, so a
-     *      build with a different OpenZeppelin revision, solc version, or optimizer/metadata setting
-     *      changes this hash — and would silently put the guard at a different, non-vanity address on a
-     *      fresh chain, orphaning every downstream constant. {_deployGuard} therefore refuses to run
-     *      against drifted bytes. If the init code is ever changed ON PURPOSE, mine a new salt against
-     *      the new hash (the script logs it) and update {GUARD_SALT}, this constant, {EXPECTED_GUARD},
-     *      and every repo that hardcodes the guard address.
-     */
     bytes32 internal constant GUARD_PROXY_INITCODE_HASH =
-        0x0cd908268c2e00b5a68b74851c32a393b6e5b42f6c0bfc5beedb3ad40b0d5b0b;
+        0x477f8905cc00717c5d18e3e6a15f5e614214d1d59dddc9f22e2a37683ab653e0;
 
-    address internal constant EXPECTED_GUARD = 0x00006Dc0000DBB00d9bd462ad2005E20007e0Dc7;
+    address internal constant EXPECTED_GUARD = 0x000000000F5fcD35885BfE4c700042cE7cb39554;
+
+    bytes32 internal constant CFG_OWNER = keccak256("bitty.owner");
+    bytes32 internal constant CFG_GAS_WRAPPED = keccak256("bitty.gasWrapped");
 
     address[] private _assets;
     uint8[] private _assetCategories;
@@ -97,12 +88,9 @@ abstract contract DeployGuard is DeployScript {
         saveAddress("BITTY_GUARD", guard);
     }
 
-    bytes32 internal constant CFG_OWNER = keccak256("bitty.owner");
-    bytes32 internal constant CFG_GAS_WRAPPED = keccak256("bitty.gasWrapped");
-
     function _configure(address guardAddress) internal {
         IBittyV1Guard guard = IBittyV1Guard(guardAddress);
-        address owner = getAddress("OWNER");
+        address owner = getAddress("DEPLOYER");
         if (guard.getAddress(CFG_OWNER) != owner) {
             guard.setAddress(CFG_OWNER, owner);
             console2.log("CFG_OWNER set", owner);
