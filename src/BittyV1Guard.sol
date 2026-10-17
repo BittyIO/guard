@@ -8,23 +8,36 @@ import {
 } from "openzeppelin-contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
 import {
     IBittyV1Guard,
+    PriceFeed,
+    MarketTradeInfo,
+    ASSET_STABLE_COIN,
     NotDeployer,
     LengthMismatch,
     NotRegisteredProtocol,
     NotRegisteredImplementation,
-    AddressZero
+    AddressZero,
+    InvalidPriceFeed
 } from "./interfaces/IBittyV1Guard.sol";
 import {EnumerableSet} from "openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol";
 import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
+
+/**
+ * @dev The one call {BittyV1Guard-setPriceFeeds} makes to a Chainlink feed, and to the asset it prices.
+ */
+interface IDecimals {
+    function decimals() external view returns (uint8);
+}
 
 /**
  * @title BittyV1Guard
  * @notice Guard of allowed assets and protocols for Bitty.
  */
 contract BittyV1Guard is IBittyV1Guard, Initializable, AccessControlDefaultAdminRulesUpgradeable, UUPSUpgradeable {
+    address public constant DEPLOYER = 0x12EE2de7BF086388B1D560eb95e7191Edfab9823;
+
     using EnumerableSet for EnumerableSet.AddressSet;
 
-    uint256 private constant _VERSION = 1 * 1_000_000 + 0 * 1_000 + 0;
+    uint256 private constant _VERSION = 1 * 1_000_000 + 0 * 1_000 + 1;
 
     uint48 internal constant DEFAULT_ADMIN_TRANSFER_DELAY = 7 days;
 
@@ -51,7 +64,9 @@ contract BittyV1Guard is IBittyV1Guard, Initializable, AccessControlDefaultAdmin
 
     mapping(bytes32 key => uint256) internal _configUint;
 
-    address public constant DEPLOYER = 0x12EE2de7BF086388B1D560eb95e7191Edfab9823;
+    mapping(address asset => PriceFeed) internal _priceFeeds;
+
+    address internal _sequencerUptimeFeed;
 
     constructor() {
         _disableInitializers();
@@ -243,5 +258,112 @@ contract BittyV1Guard is IBittyV1Guard, Initializable, AccessControlDefaultAdmin
     function setUint(bytes32 key, uint256 value) external override onlyRole(CONFIG_MANAGER_ROLE) {
         _configUint[key] = value;
         emit ConfigUintSet(key, value);
+    }
+
+    function setPriceFeeds(
+        address[] calldata assets,
+        address[] calldata feeds,
+        uint32[] calldata maxAges,
+        address[] calldata quotes
+    ) external override onlyRole(ASSET_MANAGER_ROLE) {
+        uint256 length = assets.length;
+        if (feeds.length != length || maxAges.length != length || quotes.length != length) {
+            revert LengthMismatch();
+        }
+        for (uint256 i = 0; i < length; i++) {
+            address asset = assets[i];
+            address feed = feeds[i];
+            if (feed == address(0)) {
+                delete _priceFeeds[asset];
+                emit PriceFeedSet(asset, address(0), 0, 0, address(0));
+                continue;
+            }
+            if (maxAges[i] == 0 || (quotes[i] != address(0) && quotes[i] == asset)) revert InvalidPriceFeed(asset);
+            uint8 decimals = IDecimals(feed).decimals();
+            _priceFeeds[asset] = PriceFeed({
+                feed: feed,
+                maxAge: maxAges[i],
+                decimals: decimals,
+                assetDecimals: _assetDecimals(asset),
+                hasQuote: quotes[i] != address(0),
+                quote: quotes[i]
+            });
+            emit PriceFeedSet(asset, feed, maxAges[i], decimals, quotes[i]);
+        }
+    }
+
+    /**
+     * @dev The native asset is 18; anything that answers no `decimals()` is 0, which a reader takes to
+     *      mean "ask the token".
+     */
+    function _assetDecimals(address asset) private view returns (uint8) {
+        if (asset == address(0)) return 18;
+        (bool ok, bytes memory data) = asset.staticcall(abi.encodeCall(IDecimals.decimals, ()));
+        if (!ok || data.length < 32) return 0;
+        uint256 d = abi.decode(data, (uint256));
+        return d > type(uint8).max ? 0 : uint8(d);
+    }
+
+    function priceFeed(address asset) external view override returns (PriceFeed memory) {
+        return _priceFeeds[asset];
+    }
+
+    function setSequencerUptimeFeed(address feed) external override onlyRole(CONFIG_MANAGER_ROLE) {
+        _sequencerUptimeFeed = feed;
+        emit SequencerUptimeFeedSet(feed);
+    }
+
+    function sequencerUptimeFeed() external view override returns (address) {
+        return _sequencerUptimeFeed;
+    }
+
+    function marketTradeChecks(address protocol, address sellToken, address buyToken)
+        external
+        view
+        override
+        returns (uint8, bool, uint8, uint8)
+    {
+        return (
+            protocolCategory[protocol],
+            _deprecatedProtocols.contains(protocol),
+            assetCategory[sellToken],
+            assetCategory[buyToken]
+        );
+    }
+
+    function marketTradeInfo(address protocol, address sellToken, address buyToken)
+        external
+        view
+        override
+        returns (MarketTradeInfo memory info)
+    {
+        info.protocolCategory = protocolCategory[protocol];
+        info.protocolDeprecated = _deprecatedProtocols.contains(protocol);
+        info.sellCategory = assetCategory[sellToken];
+        info.buyCategory = assetCategory[buyToken];
+
+        bool sellPriced = info.sellCategory & ASSET_STABLE_COIN == 0;
+        bool buyPriced = info.buyCategory & ASSET_STABLE_COIN == 0;
+        if (sellPriced) (info.sellFeed, info.sellQuoteFeed) = _feedWithQuote(sellToken);
+        if (buyPriced) (info.buyFeed, info.buyQuoteFeed) = _feedWithQuote(buyToken);
+        if ((sellPriced || buyPriced) && block.chainid != 1) info.sequencerUptimeFeed = _sequencerUptimeFeed;
+    }
+
+    /**
+     * @dev An asset's feed and, only if it is quoted, the quote's: a USD feed costs one slot.
+     */
+    function _feedWithQuote(address asset) private view returns (PriceFeed memory feed, PriceFeed memory quoteFeed) {
+        feed = _firstSlot(asset);
+        if (feed.hasQuote) {
+            feed.quote = _priceFeeds[asset].quote;
+            quoteFeed = _firstSlot(feed.quote);
+            if (quoteFeed.hasQuote) quoteFeed.quote = _priceFeeds[feed.quote].quote;
+        }
+    }
+
+    function _firstSlot(address asset) private view returns (PriceFeed memory p) {
+        PriceFeed storage s = _priceFeeds[asset];
+        (p.feed, p.maxAge, p.decimals, p.assetDecimals, p.hasQuote) =
+        (s.feed, s.maxAge, s.decimals, s.assetDecimals, s.hasQuote);
     }
 }

@@ -6,8 +6,8 @@ import {ERC1967Utils} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC19
 import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {console2} from "forge-std/console2.sol";
 import {BittyV1Guard} from "../src/BittyV1Guard.sol";
-import {IBittyV1Guard, IMPLEMENTATION_VAULT} from "../src/interfaces/IBittyV1Guard.sol";
-import {BittyV1GuardBootstrap} from "../src/BittyV1GuardBootstrap.sol";
+import {IBittyV1Guard, IMPLEMENTATION_VAULT, CFG_OWNER, CFG_GAS_WRAPPED} from "../src/interfaces/IBittyV1Guard.sol";
+import {GUARD_BOOTSTRAP, GUARD_BOOTSTRAP_INITCODE} from "./GuardBootstrapInitCode.sol";
 import {DeployScript} from "./BaseDeploy.sol";
 
 interface ImmutableCreate2Factory {
@@ -39,9 +39,6 @@ abstract contract DeployGuard is DeployScript {
 
     address internal constant EXPECTED_GUARD = 0x000000000F5fcD35885BfE4c700042cE7cb39554;
 
-    bytes32 internal constant CFG_OWNER = keccak256("bitty.owner");
-    bytes32 internal constant CFG_GAS_WRAPPED = keccak256("bitty.gasWrapped");
-
     address[] private _assets;
     uint8[] private _assetCategories;
     address[] private _protocols;
@@ -60,7 +57,8 @@ abstract contract DeployGuard is DeployScript {
     function _deployGuard() internal returns (address guard) {
         address guardImpl = deployAtSaltZero(type(BittyV1Guard).creationCode);
 
-        address bootstrap = deployAtSaltZero(type(BittyV1GuardBootstrap).creationCode);
+        address bootstrap = deployAtSaltZero(GUARD_BOOTSTRAP_INITCODE);
+        require(bootstrap == GUARD_BOOTSTRAP, "DeployGuard: bootstrap address drifted");
         bytes memory initCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(bootstrap, bytes("")));
         console2.log("proxy initCode hash (mine the salt against this):");
         console2.logBytes32(keccak256(initCode));

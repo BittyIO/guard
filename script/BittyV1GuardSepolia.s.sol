@@ -11,6 +11,7 @@ contract Deploy is DeployGuard {
         _asset("USDT", ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
         _asset("USDC", ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
 
-        _deployGuard();
+        address guard = _deployGuard();
+        _configure(guard);
     }
 }

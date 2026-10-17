@@ -46,10 +46,9 @@ The three category namespaces are independent — the same number means differen
 | `PROTOCOL_LENDING` | `2` | Protocols | single value |
 | `PROTOCOL_MARKET_TRADE` | `3` | Protocols | single value |
 | `PROTOCOL_INTENT` | `4` | Protocols | single value |
-| `PROTOCOL_MARKET_MAKER` | `5` | Protocols | single value |
 | `IMPLEMENTATION_VAULT` | `1` | Implementations | single value |
 
-There is no separate AMM protocol category. Spot-style routing uses **market trade** and **market maker** adapters; deprecated lending/staking (and legacy pool) protocols stay registered as **deprecated** so vaults can exit positions only.
+There is no separate AMM or market-maker protocol category. Spot-style routing uses **market trade** adapters; deprecated lending/staking (and legacy pool) protocols stay registered as **deprecated** so vaults can exit positions only.
 
 **Asset categories are a bitmask.** Every `ASSET_*` flag is a distinct power of two, so an asset's `assetCategory` is the OR of *every* category it belongs to — one asset can be several at once. Register an asset with the combined mask, and test membership with a bitwise AND, never `==`:
 
@@ -86,10 +85,10 @@ Administration uses OpenZeppelin `AccessControlDefaultAdminRules` with a **7-day
 | Role | Scope |
 |------|-------|
 | `DEFAULT_ADMIN_ROLE` | Role grants, contract upgrades |
-| `ASSET_MANAGER_ROLE` | Asset registry |
+| `ASSET_MANAGER_ROLE` | Asset registry and price feeds (`setPriceFeeds`) |
 | `PROTOCOL_MANAGER_ROLE` | Protocol registration / deprecation, all protocol categories |
 | `IMPLEMENTATION_MANAGER_ROLE` | Implementation registry, all implementation categories |
-| `CONFIG_MANAGER_ROLE` | Config map (`setAddress` / `setUint`) |
+| `CONFIG_MANAGER_ROLE` | Config map (`setAddress` / `setUint`), sequencer uptime feed |
 
 One role per registry: what an account may **hold**, what it may **use**, what it may **upgrade to**, and shared fleet config.
 

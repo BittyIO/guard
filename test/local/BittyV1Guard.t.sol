@@ -21,9 +21,59 @@ import {
     PROTOCOL_LENDING,
     PROTOCOL_MARKET_TRADE,
     PROTOCOL_INTENT,
-    PROTOCOL_MARKET_MAKER
+    ASSET_AMM_LIQUID,
+    PriceFeed,
+    MarketTradeInfo,
+    InvalidPriceFeed
 } from "../../src/interfaces/IBittyV1Guard.sol";
 import {MockERC20} from "lib/solmate/src/test/utils/mocks/MockERC20.sol";
+import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
+
+/**
+ * @dev Answers only `decimals()`, which is all the guard asks a feed.
+ */
+contract DecimalsFeed {
+    uint8 public decimals;
+
+    constructor(uint8 decimals_) {
+        decimals = decimals_;
+    }
+}
+
+/**
+ * @dev Code with no `decimals()` at all: not a feed.
+ */
+contract NotAFeed {}
+
+/**
+ * @dev A token whose `decimals()` reverts.
+ */
+contract RevertingDecimalsToken {
+    function decimals() external pure returns (uint8) {
+        revert();
+    }
+}
+
+/**
+ * @dev A token whose `decimals()` answers a number no uint8 holds.
+ */
+contract WideDecimalsToken {
+    function decimals() external pure returns (uint256) {
+        return 300;
+    }
+}
+
+/**
+ * @dev A token that answers every call with a single byte, too short to be a uint.
+ */
+contract ShortReturnToken {
+    fallback() external {
+        assembly {
+            mstore(0, 0x1200000000000000000000000000000000000000000000000000000000000000)
+            return(0, 1)
+        }
+    }
+}
 
 contract BittyV1GuardTest is Test {
     // The registry is generic over category; this stands in for any second one.
@@ -32,7 +82,6 @@ contract BittyV1GuardTest is Test {
     BittyV1Guard public bittyGuard;
     address public deployAdmin;
     address public protocolOwner;
-    address public marketMakerProtocol;
     address public marketTradeProtocol;
     address public lendingProtocol;
     address public stakingProtocol;
@@ -45,7 +94,6 @@ contract BittyV1GuardTest is Test {
     address[] public stableCoins;
     address[] public lendingProtocols;
     address[] public stakingProtocols;
-    address[] public marketMakerProtocols;
     address[] public marketTradeProtocols;
     address[] public intentProtocols;
 
@@ -61,7 +109,6 @@ contract BittyV1GuardTest is Test {
 
     function setUp() public {
         protocolOwner = makeAddr("protocolOwner");
-        marketMakerProtocol = makeAddr("marketMakerProtocol");
         marketTradeProtocol = makeAddr("marketTradeProtocol");
         lendingProtocol = makeAddr("lendingProtocol");
         stakingProtocol = makeAddr("stakingProtocol");
@@ -90,8 +137,6 @@ contract BittyV1GuardTest is Test {
         lendingProtocols[0] = lendingProtocol;
         stakingProtocols = new address[](1);
         stakingProtocols[0] = stakingProtocol;
-        marketMakerProtocols = new address[](1);
-        marketMakerProtocols[0] = marketMakerProtocol;
         marketTradeProtocols = new address[](1);
         marketTradeProtocols[0] = marketTradeProtocol;
         intentProtocols = new address[](1);
@@ -135,7 +180,7 @@ contract BittyV1GuardTest is Test {
     function test_OnlyAdminCanUpgradeTheGuard() public {
         vm.startPrank(protocolOwner);
         bittyGuard.addAssets(assets, _cats(assets.length, ASSET_CRYPTO));
-        bittyGuard.addProtocols(marketMakerProtocols, _cats(marketMakerProtocols.length, PROTOCOL_MARKET_MAKER));
+        bittyGuard.addProtocols(marketTradeProtocols, _cats(marketTradeProtocols.length, PROTOCOL_MARKET_TRADE));
         vm.stopPrank();
 
         BittyV1Guard next = new BittyV1Guard();
@@ -150,8 +195,8 @@ contract BittyV1GuardTest is Test {
         // And so do the registries, which is what a live upgrade actually risks - every deployed vault
         // reads them on every trade, so losing one would brick the fleet rather than just the guard.
         assertTrue(bittyGuard.isAssetRegistered(assets[0]), "assets survived");
-        assertTrue(bittyGuard.isProtocolRegistered(marketMakerProtocol), "protocols survived");
-        assertEq(bittyGuard.versionName(), "1.0.0", "and the new code is the code answering");
+        assertTrue(bittyGuard.isProtocolRegistered(marketTradeProtocol), "protocols survived");
+        assertEq(bittyGuard.versionName(), "1.0.1", "and the new code is the code answering");
     }
 
     function test_AddRegisteredAssets() public {
@@ -220,40 +265,6 @@ contract BittyV1GuardTest is Test {
         assertFalse(bittyGuard.isProtocolRegistered(stakingProtocol));
         assertTrue(bittyGuard.isProtocolDeprecated(stakingProtocol));
         _assertProtocolsAre(new address[](0));
-    }
-
-    function test_AddMarketMakerProtocols() public {
-        _addProtocols(marketMakerProtocols, PROTOCOL_MARKET_MAKER);
-        assertTrue(bittyGuard.isProtocolRegistered(marketMakerProtocol));
-        assertFalse(bittyGuard.isProtocolDeprecated(marketMakerProtocol));
-    }
-
-    function test_DeprecateMarketMakerProtocols() public {
-        _addProtocols(marketMakerProtocols, PROTOCOL_MARKET_MAKER);
-        vm.prank(protocolOwner);
-        bittyGuard.deprecateProtocols(marketMakerProtocols);
-        assertFalse(bittyGuard.isProtocolRegistered(marketMakerProtocol));
-        assertTrue(bittyGuard.isProtocolDeprecated(marketMakerProtocol));
-        _assertProtocolsAre(new address[](0));
-    }
-
-    function test_DeprecateMarketMakerProtocolsAllowsAllDeprecated() public {
-        address[] memory marketMakerProtocolAddresses = new address[](1);
-        marketMakerProtocolAddresses[0] = marketMakerProtocol;
-        _addProtocols(marketMakerProtocolAddresses, PROTOCOL_MARKET_MAKER);
-        vm.prank(protocolOwner);
-        bittyGuard.deprecateProtocols(marketMakerProtocolAddresses);
-        assertFalse(bittyGuard.isProtocolRegistered(marketMakerProtocol));
-        assertTrue(bittyGuard.isProtocolDeprecated(marketMakerProtocol));
-    }
-
-    function test_AddMarketMakerProtocolsClearsDeprecatedFlag() public {
-        _addProtocols(marketMakerProtocols, PROTOCOL_MARKET_MAKER);
-        vm.prank(protocolOwner);
-        bittyGuard.deprecateProtocols(marketMakerProtocols);
-        _addProtocols(marketMakerProtocols, PROTOCOL_MARKET_MAKER);
-        assertTrue(bittyGuard.isProtocolRegistered(marketMakerProtocol));
-        assertFalse(bittyGuard.isProtocolDeprecated(marketMakerProtocol));
     }
 
     function test_AddRegisteredNeedToRemoveDeprecated() public {
@@ -339,31 +350,9 @@ contract BittyV1GuardTest is Test {
         _assertProtocolsAre(new address[](0));
     }
 
-    function test_GetMarketMakerProtocols() public {
-        _addProtocols(marketMakerProtocols, PROTOCOL_MARKET_MAKER);
-        _assertProtocolsAre(marketMakerProtocols);
-    }
-
     function test_GetMarketTradeProtocols() public {
         _addProtocols(marketTradeProtocols, PROTOCOL_MARKET_TRADE);
         _assertProtocolsAre(marketTradeProtocols);
-    }
-
-    function test_GetMarketMakerProtocolsAfterPartialDeprecate() public {
-        address extraMarketMaker = makeAddr("extraMarketMaker");
-        address[] memory twoMarketMakers = new address[](2);
-        twoMarketMakers[0] = marketMakerProtocol;
-        twoMarketMakers[1] = extraMarketMaker;
-        _addProtocols(twoMarketMakers, PROTOCOL_MARKET_MAKER);
-        address[] memory toDeprecate = new address[](1);
-        toDeprecate[0] = extraMarketMaker;
-        vm.prank(protocolOwner);
-        bittyGuard.deprecateProtocols(toDeprecate);
-        address[] memory expected = new address[](1);
-        expected[0] = marketMakerProtocol;
-        _assertProtocolsAre(expected);
-        assertTrue(bittyGuard.isProtocolDeprecated(extraMarketMaker));
-        assertFalse(bittyGuard.isProtocolRegistered(extraMarketMaker));
     }
 
     function test_GetLendingProtocolsExcludesDeprecated() public {
@@ -426,18 +415,16 @@ contract BittyV1GuardTest is Test {
     function test_InitializeSeedsEveryRegistry() public {
         vm.startPrank(deployAdmin, deployAdmin);
         BittyV1Guard guardImpl = new BittyV1Guard();
-        address[] memory allProtocols_ = new address[](5);
+        address[] memory allProtocols_ = new address[](4);
         allProtocols_[0] = lendingProtocol;
         allProtocols_[1] = stakingProtocol;
         allProtocols_[2] = marketTradeProtocol;
         allProtocols_[3] = intentProtocol;
-        allProtocols_[4] = marketMakerProtocol;
-        uint8[] memory categories = new uint8[](5);
+        uint8[] memory categories = new uint8[](4);
         categories[0] = PROTOCOL_LENDING;
         categories[1] = PROTOCOL_STAKING;
         categories[2] = PROTOCOL_MARKET_TRADE;
         categories[3] = PROTOCOL_INTENT;
-        categories[4] = PROTOCOL_MARKET_MAKER;
         // Assets and stable coins seed through ONE list now, told apart by category.
         address[] memory seedAssets = new address[](assets.length + stableCoins.length);
         uint8[] memory seedCategories = new uint8[](seedAssets.length);
@@ -472,12 +459,10 @@ contract BittyV1GuardTest is Test {
         assertTrue(guard.isProtocolRegistered(stakingProtocol));
         assertTrue(guard.isProtocolRegistered(marketTradeProtocol));
         assertTrue(guard.isProtocolRegistered(intentProtocol));
-        assertTrue(guard.isProtocolRegistered(marketMakerProtocol));
         assertEq(guard.protocolCategory(lendingProtocol), PROTOCOL_LENDING);
         assertEq(guard.protocolCategory(stakingProtocol), PROTOCOL_STAKING);
         assertEq(guard.protocolCategory(marketTradeProtocol), PROTOCOL_MARKET_TRADE);
         assertEq(guard.protocolCategory(intentProtocol), PROTOCOL_INTENT);
-        assertEq(guard.protocolCategory(marketMakerProtocol), PROTOCOL_MARKET_MAKER);
     }
 
     function test_DefaultAdminTransferDelay() public view {
@@ -530,13 +515,11 @@ contract BittyV1GuardTest is Test {
         _addProtocols(stakingProtocols, PROTOCOL_STAKING);
         _addProtocols(marketTradeProtocols, PROTOCOL_MARKET_TRADE);
         _addProtocols(intentProtocols, PROTOCOL_INTENT);
-        _addProtocols(marketMakerProtocols, PROTOCOL_MARKET_MAKER);
 
         assertTrue(bittyGuard.isProtocolRegistered(lendingProtocol));
         assertTrue(bittyGuard.isProtocolRegistered(stakingProtocol));
         assertTrue(bittyGuard.isProtocolRegistered(marketTradeProtocol));
         assertTrue(bittyGuard.isProtocolRegistered(intentProtocol));
-        assertTrue(bittyGuard.isProtocolRegistered(marketMakerProtocol));
     }
 
     function test_IsProtocolRegistered_falseAfterDeprecate() public {
@@ -596,13 +579,11 @@ contract BittyV1GuardTest is Test {
         _addProtocols(stakingProtocols, PROTOCOL_STAKING);
         _addProtocols(marketTradeProtocols, PROTOCOL_MARKET_TRADE);
         _addProtocols(intentProtocols, PROTOCOL_INTENT);
-        _addProtocols(marketMakerProtocols, PROTOCOL_MARKET_MAKER);
 
         assertEq(bittyGuard.protocolCategory(lendingProtocol), PROTOCOL_LENDING);
         assertEq(bittyGuard.protocolCategory(stakingProtocol), PROTOCOL_STAKING);
         assertEq(bittyGuard.protocolCategory(marketTradeProtocol), PROTOCOL_MARKET_TRADE);
         assertEq(bittyGuard.protocolCategory(intentProtocol), PROTOCOL_INTENT);
-        assertEq(bittyGuard.protocolCategory(marketMakerProtocol), PROTOCOL_MARKET_MAKER);
     }
 
     function test_ProtocolCategory_isZeroForUnregistered() public {
@@ -827,7 +808,7 @@ contract BittyV1GuardTest is Test {
 
         vm.prank(deployAdmin, deployAdmin);
         UUPSUpgradeable(proxy).upgradeToAndCall(build, "");
-        assertEq(BittyV1Guard(proxy).versionName(), "1.0.0", "the real build is live");
+        assertEq(BittyV1Guard(proxy).versionName(), "1.0.1", "the real build is live");
     }
 
     function _addProtocols(address[] memory protocols, uint8 category) internal {
@@ -843,6 +824,495 @@ contract BittyV1GuardTest is Test {
     }
 
     address internal constant SIMPLE_CREATE2 = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
+
+    // ── price feeds and the market-trade read ──────────────────────────────────────────────────
+
+    function _setFeed(address asset, address feed, uint32 maxAge, address quote) internal {
+        address[] memory a = new address[](1);
+        address[] memory f = new address[](1);
+        uint32[] memory m = new uint32[](1);
+        address[] memory q = new address[](1);
+        (a[0], f[0], m[0], q[0]) = (asset, feed, maxAge, quote);
+        vm.prank(deployAdmin);
+        bittyGuard.setPriceFeeds(a, f, m, q);
+    }
+
+    function _priced() internal returns (address feed8, address feed18) {
+        vm.startPrank(protocolOwner);
+        bittyGuard.addAssets(_one(address(mockWETH)), _cats(1, ASSET_CRYPTO | ASSET_AMM_LIQUID));
+        bittyGuard.addAssets(_one(address(mockUSDC)), _cats(1, ASSET_STABLE_COIN | ASSET_AMM_LIQUID));
+        bittyGuard.addProtocols(_one(marketTradeProtocol), _cats(1, PROTOCOL_MARKET_TRADE));
+        vm.stopPrank();
+        feed8 = address(new DecimalsFeed(8));
+        feed18 = address(new DecimalsFeed(18));
+    }
+
+    /**
+     * The feed's decimals are read from the feed itself when it is set, so a wrong number cannot be
+     * configured by hand and a reader never has to ask the feed again.
+     */
+    function test_SetPriceFeedReadsTheFeedsDecimals() public {
+        address feed = address(new DecimalsFeed(18));
+        _setFeed(address(mockWETH), feed, 1 hours, address(0));
+        PriceFeed memory p = bittyGuard.priceFeed(address(mockWETH));
+        assertEq(p.feed, feed);
+        assertEq(p.maxAge, 1 hours);
+        assertEq(p.decimals, 18);
+        assertEq(p.assetDecimals, 18, "WETH's own decimals, read from the token");
+        assertFalse(p.hasQuote);
+        assertEq(p.quote, address(0));
+    }
+
+    /**
+     * A quote such as BTC behind WBTC / BTC is a placeholder with no token, so it answers no decimals:
+     * stored as 0, which the vault reads as "ask the token" — and a quote is never asked.
+     */
+    function test_APlaceholderQuoteHasNoAssetDecimals() public {
+        address btc = 0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB;
+        _setFeed(btc, address(new DecimalsFeed(8)), 1 hours, address(0));
+        assertEq(bittyGuard.priceFeed(btc).assetDecimals, 0);
+        assertEq(bittyGuard.priceFeed(btc).decimals, 8);
+    }
+
+    function test_TheNativeAssetIs18Decimals() public {
+        _setFeed(address(0), address(new DecimalsFeed(8)), 1 hours, address(0));
+        assertEq(bittyGuard.priceFeed(address(0)).assetDecimals, 18);
+    }
+
+    function test_AQuotedFeedRecordsItsQuote() public {
+        _setFeed(address(mockWBTC), address(new DecimalsFeed(8)), 1 days, address(mockWETH));
+        PriceFeed memory p = bittyGuard.priceFeed(address(mockWBTC));
+        assertTrue(p.hasQuote);
+        assertEq(p.quote, address(mockWETH));
+    }
+
+    function test_AZeroFeedClearsTheEntry() public {
+        _setFeed(address(mockWETH), address(new DecimalsFeed(8)), 1 hours, address(mockWBTC));
+        _setFeed(address(mockWETH), address(0), 0, address(0));
+        PriceFeed memory p = bittyGuard.priceFeed(address(mockWETH));
+        assertEq(p.feed, address(0));
+        assertFalse(p.hasQuote);
+        assertEq(p.quote, address(0));
+    }
+
+    function test_AFeedWithNoStalenessBoundIsRefused() public {
+        address feed = address(new DecimalsFeed(8));
+        vm.expectRevert(abi.encodeWithSelector(InvalidPriceFeed.selector, address(mockWETH)));
+        _setFeed(address(mockWETH), feed, 0, address(0));
+    }
+
+    function test_AnAssetQuotedInItselfIsRefused() public {
+        address feed = address(new DecimalsFeed(8));
+        vm.expectRevert(abi.encodeWithSelector(InvalidPriceFeed.selector, address(mockWETH)));
+        _setFeed(address(mockWETH), feed, 1 hours, address(mockWETH));
+    }
+
+    function test_PriceFeedArraysMustLineUp() public {
+        vm.prank(deployAdmin);
+        vm.expectRevert(LengthMismatch.selector);
+        bittyGuard.setPriceFeeds(new address[](1), new address[](1), new uint32[](0), new address[](1));
+    }
+
+    function test_AStrangerSetsNoFeeds() public {
+        address[] memory a = _one(address(mockWETH));
+        address[] memory f = _one(address(new DecimalsFeed(8)));
+        uint32[] memory m = new uint32[](1);
+        m[0] = 1 hours;
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert();
+        bittyGuard.setPriceFeeds(a, f, m, new address[](1));
+
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert();
+        bittyGuard.setSequencerUptimeFeed(makeAddr("uptime"));
+    }
+
+    function test_TheSequencerFeedIsSetAndRead() public {
+        address uptime = makeAddr("uptime");
+        vm.prank(deployAdmin);
+        bittyGuard.setSequencerUptimeFeed(uptime);
+        assertEq(bittyGuard.sequencerUptimeFeed(), uptime);
+    }
+
+    /**
+     * The unpriced read answers what every trade checks: the protocol, its deprecation, and each
+     * token's category — and nothing about feeds, which an unprotected trade never reads.
+     */
+    function test_MarketTradeChecksReadsOnlyTheRegistry() public {
+        (address feed8,) = _priced();
+        _setFeed(address(mockWETH), feed8, 1 hours, address(0));
+
+        (uint8 protocolCat, bool deprecated, uint8 sellCat, uint8 buyCat) =
+            bittyGuard.marketTradeChecks(marketTradeProtocol, address(mockWETH), address(mockUSDC));
+        assertEq(protocolCat, PROTOCOL_MARKET_TRADE);
+        assertFalse(deprecated);
+        assertEq(sellCat, ASSET_CRYPTO | ASSET_AMM_LIQUID);
+        assertEq(buyCat, ASSET_STABLE_COIN | ASSET_AMM_LIQUID);
+
+        MarketTradeInfo memory info =
+            bittyGuard.marketTradeInfo(marketTradeProtocol, address(mockWETH), address(mockUSDC));
+        assertEq(info.sellCategory, sellCat, "the priced read answers the same registry");
+        assertEq(info.sellFeed.feed, feed8);
+    }
+
+    function test_MarketTradeInfoPricedSkipsStablecoinsAndChainsQuotes() public {
+        (address feed8, address feed18) = _priced();
+        address uptime = makeAddr("uptime");
+        _setFeed(address(mockWBTC), feed8, 1 days, address(mockWETH));
+        _setFeed(address(mockWETH), feed18, 1 hours, address(0));
+        _setFeed(address(mockUSDC), feed8, 1 days, address(0)); // set, but a stablecoin never reads it
+        vm.prank(deployAdmin);
+        bittyGuard.setSequencerUptimeFeed(uptime);
+        vm.prank(protocolOwner);
+        bittyGuard.addAssets(_one(address(mockWBTC)), _cats(1, ASSET_CRYPTO | ASSET_AMM_LIQUID));
+
+        MarketTradeInfo memory info =
+            bittyGuard.marketTradeInfo(marketTradeProtocol, address(mockWBTC), address(mockUSDC));
+        assertEq(info.sellFeed.feed, feed8);
+        assertEq(info.sellFeed.quote, address(mockWETH));
+        assertEq(info.sellQuoteFeed.feed, feed18, "the quote's own feed came back with it");
+        assertEq(info.sellQuoteFeed.decimals, 18);
+        assertEq(info.buyFeed.feed, address(0), "a stablecoin is a dollar, not a feed");
+        assertEq(info.sequencerUptimeFeed, uptime);
+    }
+
+    function test_MarketTradeInfoStableToStableNeedsNoSequencer() public {
+        _priced();
+        vm.prank(deployAdmin);
+        bittyGuard.setSequencerUptimeFeed(makeAddr("uptime"));
+        vm.prank(protocolOwner);
+        bittyGuard.addAssets(_one(address(mockUSDT)), _cats(1, ASSET_STABLE_COIN | ASSET_AMM_LIQUID));
+
+        MarketTradeInfo memory info =
+            bittyGuard.marketTradeInfo(marketTradeProtocol, address(mockUSDC), address(mockUSDT));
+        assertEq(info.sequencerUptimeFeed, address(0));
+    }
+
+    /**
+     * Ethereum mainnet has no sequencer, so the uptime feed is not even read there.
+     */
+    function test_MarketTradeInfoSkipsTheSequencerOnMainnet() public {
+        (address feed8,) = _priced();
+        _setFeed(address(mockWETH), feed8, 1 hours, address(0));
+        vm.prank(deployAdmin);
+        bittyGuard.setSequencerUptimeFeed(makeAddr("uptime"));
+
+        vm.chainId(1);
+        MarketTradeInfo memory info =
+            bittyGuard.marketTradeInfo(marketTradeProtocol, address(mockWETH), address(mockUSDC));
+        assertEq(info.sequencerUptimeFeed, address(0));
+        assertEq(info.sellFeed.feed, feed8);
+    }
+
+    function test_MarketTradeInfoReportsDeprecationAndUnregisteredTokens() public {
+        _priced();
+        vm.prank(protocolOwner);
+        bittyGuard.deprecateProtocols(_one(marketTradeProtocol));
+
+        (, bool deprecated, uint8 sellCat,) =
+            bittyGuard.marketTradeChecks(marketTradeProtocol, address(mockWBTC), address(mockUSDC));
+        assertTrue(deprecated);
+        assertEq(sellCat, 0, "unregistered reads as category 0");
+    }
+
+    function test_GuardVersionIs1_0_1() public view {
+        assertEq(bittyGuard.guardVersion(), 1_000_001);
+        assertEq(bittyGuard.versionName(), "1.0.1");
+    }
+
+    function test_SetPriceFeedEmits() public {
+        address feed = address(new DecimalsFeed(8));
+        vm.expectEmit(true, false, false, true, address(bittyGuard));
+        emit IBittyV1Guard.PriceFeedSet(address(mockWBTC), feed, 1 days, 8, address(mockWETH));
+        _setFeed(address(mockWBTC), feed, 1 days, address(mockWETH));
+    }
+
+    function test_ClearingAFeedEmitsZeros() public {
+        _setFeed(address(mockWETH), address(new DecimalsFeed(8)), 1 hours, address(0));
+        vm.expectEmit(true, false, false, true, address(bittyGuard));
+        emit IBittyV1Guard.PriceFeedSet(address(mockWETH), address(0), 0, 0, address(0));
+        _setFeed(address(mockWETH), address(0), 0, address(0));
+    }
+
+    function test_SetSequencerUptimeFeedEmitsAndCanBeCleared() public {
+        address uptime = makeAddr("uptime");
+        vm.expectEmit(false, false, false, true, address(bittyGuard));
+        emit IBittyV1Guard.SequencerUptimeFeedSet(uptime);
+        vm.prank(deployAdmin);
+        bittyGuard.setSequencerUptimeFeed(uptime);
+
+        vm.prank(deployAdmin);
+        bittyGuard.setSequencerUptimeFeed(address(0));
+        assertEq(bittyGuard.sequencerUptimeFeed(), address(0), "a chain without a sequencer clears it");
+    }
+
+    /**
+     * One call sets, quotes and clears side by side; each entry is written on its own.
+     */
+    function test_SetPriceFeedsWritesABatch() public {
+        address feed8 = address(new DecimalsFeed(8));
+        address feed18 = address(new DecimalsFeed(18));
+        _setFeed(address(mockUSDC), feed8, 1 days, address(0));
+
+        address[] memory a = new address[](3);
+        address[] memory f = new address[](3);
+        uint32[] memory m = new uint32[](3);
+        address[] memory q = new address[](3);
+        (a[0], f[0], m[0], q[0]) = (address(mockWETH), feed8, 1 hours, address(0));
+        (a[1], f[1], m[1], q[1]) = (address(mockWBTC), feed18, 1 days, address(mockWETH));
+        (a[2], f[2], m[2], q[2]) = (address(mockUSDC), address(0), 0, address(0));
+        vm.prank(deployAdmin);
+        bittyGuard.setPriceFeeds(a, f, m, q);
+
+        assertEq(bittyGuard.priceFeed(address(mockWETH)).feed, feed8);
+        assertEq(bittyGuard.priceFeed(address(mockWETH)).assetDecimals, 18);
+        assertEq(bittyGuard.priceFeed(address(mockWBTC)).decimals, 18);
+        assertEq(bittyGuard.priceFeed(address(mockWBTC)).assetDecimals, 8);
+        assertEq(bittyGuard.priceFeed(address(mockWBTC)).quote, address(mockWETH));
+        assertEq(bittyGuard.priceFeed(address(mockUSDC)).feed, address(0), "cleared in the same call");
+    }
+
+    /**
+     * One bad entry refuses the whole call: nothing before it is kept.
+     */
+    function test_ABadEntryRefusesTheWholeBatch() public {
+        address feed = address(new DecimalsFeed(8));
+        address[] memory a = new address[](2);
+        address[] memory f = new address[](2);
+        uint32[] memory m = new uint32[](2);
+        (a[0], f[0], m[0]) = (address(mockWETH), feed, 1 hours);
+        (a[1], f[1], m[1]) = (address(mockWBTC), feed, 0);
+        vm.prank(deployAdmin);
+        vm.expectRevert(abi.encodeWithSelector(InvalidPriceFeed.selector, address(mockWBTC)));
+        bittyGuard.setPriceFeeds(a, f, m, new address[](2));
+        assertEq(bittyGuard.priceFeed(address(mockWETH)).feed, address(0));
+    }
+
+    /**
+     * Moving an asset from a quoted feed to a USD one leaves no trace of the old quote: a reader that
+     * still saw `hasQuote` would price it through an asset that no longer applies.
+     */
+    function test_ReplacingAQuotedFeedWithAUsdFeedDropsTheQuote() public {
+        _setFeed(address(mockWBTC), address(new DecimalsFeed(18)), 1 days, address(mockWETH));
+        address usd = address(new DecimalsFeed(8));
+        _setFeed(address(mockWBTC), usd, 1 hours, address(0));
+        PriceFeed memory p = bittyGuard.priceFeed(address(mockWBTC));
+        assertEq(p.feed, usd);
+        assertEq(p.maxAge, 1 hours);
+        assertEq(p.decimals, 8);
+        assertFalse(p.hasQuote);
+        assertEq(p.quote, address(0));
+    }
+
+    /**
+     * Clearing ignores the staleness bound and the quote, so a zero feed with a zero maxAge clears
+     * rather than being refused as unbounded.
+     */
+    function test_ClearingNeedsNoStalenessBound() public {
+        _setFeed(address(mockWETH), address(new DecimalsFeed(8)), 1 hours, address(0));
+        _setFeed(address(mockWETH), address(0), 0, address(mockWETH));
+        assertEq(bittyGuard.priceFeed(address(mockWETH)).feed, address(0));
+    }
+
+    function test_AFeedWithoutDecimalsIsRefused() public {
+        address feed = address(new NotAFeed());
+        vm.expectRevert();
+        _setFeed(address(mockWETH), feed, 1 hours, address(0));
+    }
+
+    /**
+     * An asset that cannot say its decimals is stored as 0 - "ask the token" - rather than refused:
+     * a revert, a short answer and a number past uint8 all read the same.
+     */
+    function test_AnAssetWithUnreadableDecimalsStoresZero() public {
+        address feed = address(new DecimalsFeed(8));
+        address[3] memory tokens =
+            [address(new RevertingDecimalsToken()), address(new ShortReturnToken()), address(new WideDecimalsToken())];
+        for (uint256 i; i < tokens.length; ++i) {
+            _setFeed(tokens[i], feed, 1 hours, address(0));
+            assertEq(bittyGuard.priceFeed(tokens[i]).assetDecimals, 0);
+            assertEq(bittyGuard.priceFeed(tokens[i]).decimals, 8, "the feed itself is still read");
+        }
+    }
+
+    /**
+     * How an asset is valued belongs with the role that decides which assets exist: the asset manager
+     * sets price feeds, and the config manager, which keeps the chain-wide settings, does not.
+     */
+    function test_PriceFeedsAreTheAssetManagersNotTheConfigManagers() public {
+        address assetManager = makeAddr("assetManager");
+        address configManager = makeAddr("configManager");
+        vm.startPrank(deployAdmin);
+        bittyGuard.grantRole(bittyGuard.ASSET_MANAGER_ROLE(), assetManager);
+        bittyGuard.grantRole(bittyGuard.CONFIG_MANAGER_ROLE(), configManager);
+        vm.stopPrank();
+        address feed = address(new DecimalsFeed(8));
+        bytes32 assetRole = bittyGuard.ASSET_MANAGER_ROLE();
+
+        vm.prank(configManager);
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, configManager, assetRole)
+        );
+        bittyGuard.setPriceFeeds(_one(address(mockWETH)), _one(feed), _maxAge(1 hours), new address[](1));
+
+        vm.prank(assetManager);
+        bittyGuard.setPriceFeeds(_one(address(mockWETH)), _one(feed), _maxAge(1 hours), new address[](1));
+        assertEq(bittyGuard.priceFeed(address(mockWETH)).feed, feed);
+    }
+
+    function test_AProtocolManagerSetsNoPriceFeeds() public {
+        address protocolManager = makeAddr("protocolManager");
+        vm.startPrank(deployAdmin);
+        bittyGuard.grantRole(bittyGuard.PROTOCOL_MANAGER_ROLE(), protocolManager);
+        vm.stopPrank();
+        address feed = address(new DecimalsFeed(8));
+        bytes32 assetRole = bittyGuard.ASSET_MANAGER_ROLE();
+
+        vm.prank(protocolManager);
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, protocolManager, assetRole)
+        );
+        bittyGuard.setPriceFeeds(_one(address(mockWETH)), _one(feed), _maxAge(1 hours), new address[](1));
+    }
+
+    /**
+     * The sequencer uptime feed is chain-wide, not an asset's, so it stays with the config manager.
+     */
+    function test_TheSequencerFeedIsTheConfigManagersNotTheAssetManagers() public {
+        address configManager = makeAddr("configManager");
+        vm.startPrank(deployAdmin);
+        bittyGuard.grantRole(bittyGuard.CONFIG_MANAGER_ROLE(), configManager);
+        vm.stopPrank();
+        bytes32 configRole = bittyGuard.CONFIG_MANAGER_ROLE();
+
+        vm.prank(protocolOwner);
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, protocolOwner, configRole)
+        );
+        bittyGuard.setSequencerUptimeFeed(makeAddr("uptime"));
+
+        vm.prank(configManager);
+        bittyGuard.setSequencerUptimeFeed(makeAddr("uptime"));
+        assertEq(bittyGuard.sequencerUptimeFeed(), makeAddr("uptime"));
+    }
+
+    function test_MarketTradeInfoPricesTheBuySide() public {
+        (address feed8, address feed18) = _priced();
+        _setFeed(address(mockWBTC), feed8, 1 days, address(mockWETH));
+        _setFeed(address(mockWETH), feed18, 1 hours, address(0));
+        vm.prank(protocolOwner);
+        bittyGuard.addAssets(_one(address(mockWBTC)), _cats(1, ASSET_CRYPTO));
+
+        MarketTradeInfo memory info =
+            bittyGuard.marketTradeInfo(marketTradeProtocol, address(mockUSDC), address(mockWBTC));
+        assertEq(info.sellFeed.feed, address(0), "the stablecoin side reads no feed");
+        assertEq(info.buyFeed.feed, feed8);
+        assertEq(info.buyFeed.quote, address(mockWETH));
+        assertEq(info.buyQuoteFeed.feed, feed18);
+    }
+
+    function test_MarketTradeInfoPricesBothCryptoSides() public {
+        (address feed8, address feed18) = _priced();
+        _setFeed(address(mockWETH), feed18, 1 hours, address(0));
+        _setFeed(address(mockWBTC), feed8, 1 days, address(0));
+        vm.prank(protocolOwner);
+        bittyGuard.addAssets(_one(address(mockWBTC)), _cats(1, ASSET_CRYPTO));
+
+        MarketTradeInfo memory info =
+            bittyGuard.marketTradeInfo(marketTradeProtocol, address(mockWETH), address(mockWBTC));
+        assertEq(info.sellFeed.feed, feed18);
+        assertEq(info.buyFeed.feed, feed8);
+        assertEq(info.sellQuoteFeed.feed, address(0), "a USD feed brings no quote");
+        assertEq(info.buyQuoteFeed.feed, address(0));
+        assertFalse(info.sellFeed.hasQuote);
+    }
+
+    /**
+     * A quote that is itself quoted comes back naming ITS quote, so the reader can see there is a
+     * further hop - the guard answers two levels, not the whole chain.
+     */
+    function test_MarketTradeInfoNamesTheQuotesOwnQuote() public {
+        (address feed8, address feed18) = _priced();
+        address btc = 0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB;
+        _setFeed(address(mockWBTC), feed8, 1 days, btc);
+        _setFeed(btc, feed18, 1 days, address(mockWETH));
+        vm.prank(protocolOwner);
+        bittyGuard.addAssets(_one(address(mockWBTC)), _cats(1, ASSET_CRYPTO));
+
+        MarketTradeInfo memory info =
+            bittyGuard.marketTradeInfo(marketTradeProtocol, address(mockWBTC), address(mockUSDC));
+        assertEq(info.sellFeed.quote, btc);
+        assertEq(info.sellQuoteFeed.feed, feed18);
+        assertTrue(info.sellQuoteFeed.hasQuote);
+        assertEq(info.sellQuoteFeed.quote, address(mockWETH));
+    }
+
+    /**
+     * Pricing is decided by the stablecoin bit alone: a crypto token with no feed set still comes back
+     * priced (an empty feed, and the sequencer), and leaves the empty feed for the reader to refuse.
+     */
+    function test_MarketTradeInfoACryptoTokenWithNoFeedIsStillPriced() public {
+        _priced();
+        address uptime = makeAddr("uptime");
+        vm.prank(deployAdmin);
+        bittyGuard.setSequencerUptimeFeed(uptime);
+
+        MarketTradeInfo memory info =
+            bittyGuard.marketTradeInfo(marketTradeProtocol, address(mockWETH), address(mockUSDC));
+        assertEq(info.sellFeed.feed, address(0));
+        assertEq(info.sequencerUptimeFeed, uptime, "a priced side asks for the sequencer");
+    }
+
+    /**
+     * An unregistered token is category 0, which has no stablecoin bit, so it is read as priced: it is
+     * never waved through as a dollar.
+     */
+    function test_MarketTradeInfoTreatsAnUnregisteredTokenAsPriced() public {
+        (address feed8,) = _priced();
+        _setFeed(address(mockWBTC), feed8, 1 days, address(0));
+
+        MarketTradeInfo memory info =
+            bittyGuard.marketTradeInfo(marketTradeProtocol, address(mockUSDC), address(mockWBTC));
+        assertEq(info.buyCategory, 0);
+        assertEq(info.buyFeed.feed, feed8);
+    }
+
+    /**
+     * Whatever is registered, the priced read and the unpriced read agree on the registry.
+     */
+    function testFuzz_MarketTradeInfoAgreesWithMarketTradeChecks(
+        uint8 sellCategory,
+        uint8 buyCategory,
+        uint8 protocolCat,
+        bool deprecate
+    ) public {
+        sellCategory = uint8(bound(sellCategory, 1, 7));
+        buyCategory = uint8(bound(buyCategory, 1, 7));
+        protocolCat = uint8(bound(protocolCat, 1, 4));
+        vm.startPrank(protocolOwner);
+        bittyGuard.addAssets(_one(address(mockWETH)), _cats(1, sellCategory));
+        bittyGuard.addAssets(_one(address(mockWBTC)), _cats(1, buyCategory));
+        bittyGuard.addProtocols(_one(marketTradeProtocol), _cats(1, protocolCat));
+        if (deprecate) bittyGuard.deprecateProtocols(_one(marketTradeProtocol));
+        vm.stopPrank();
+
+        (uint8 p, bool d, uint8 s, uint8 b) =
+            bittyGuard.marketTradeChecks(marketTradeProtocol, address(mockWETH), address(mockWBTC));
+        MarketTradeInfo memory info =
+            bittyGuard.marketTradeInfo(marketTradeProtocol, address(mockWETH), address(mockWBTC));
+        assertEq(info.protocolCategory, p);
+        assertEq(info.protocolDeprecated, d);
+        assertEq(info.sellCategory, s);
+        assertEq(info.buyCategory, b);
+        assertEq(s, sellCategory);
+        assertEq(b, buyCategory);
+        assertEq(d, deprecate);
+    }
+
+    function _maxAge(uint32 age) internal pure returns (uint32[] memory arr) {
+        arr = new uint32[](1);
+        arr[0] = age;
+    }
 
     function _cats(uint256 n, uint8 category) internal pure returns (uint8[] memory out) {
         out = new uint8[](n);
@@ -881,13 +1351,8 @@ contract BittyV1GuardTest is Test {
     }
 
     function _assertProtocolsAre(address[] memory expected) internal view {
-        address[4][5] memory universe = [
-            _pad(lendingProtocols),
-            _pad(stakingProtocols),
-            _pad(marketTradeProtocols),
-            _pad(intentProtocols),
-            _pad(marketMakerProtocols)
-        ];
+        address[4][4] memory universe =
+            [_pad(lendingProtocols), _pad(stakingProtocols), _pad(marketTradeProtocols), _pad(intentProtocols)];
         for (uint256 c = 0; c < universe.length; c++) {
             for (uint256 i = 0; i < universe[c].length; i++) {
                 address p = universe[c][i];

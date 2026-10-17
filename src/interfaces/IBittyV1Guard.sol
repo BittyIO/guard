@@ -7,6 +7,7 @@ error NotRegisteredProtocol(address protocolAddress);
 error NotRegisteredImplementation(address implementation);
 error CategoryZero();
 error AddressZero();
+error InvalidPriceFeed(address asset);
 
 uint8 constant ASSET_STABLE_COIN = 1;
 uint8 constant ASSET_CRYPTO = 2;
@@ -16,9 +17,43 @@ uint8 constant PROTOCOL_STAKING = 1;
 uint8 constant PROTOCOL_LENDING = 2;
 uint8 constant PROTOCOL_MARKET_TRADE = 3;
 uint8 constant PROTOCOL_INTENT = 4;
-uint8 constant PROTOCOL_MARKET_MAKER = 5;
 
 uint8 constant IMPLEMENTATION_VAULT = 1;
+
+bytes32 constant CFG_OWNER = keccak256("bitty.owner");
+bytes32 constant CFG_GAS_WRAPPED = keccak256("bitty.gasWrapped");
+
+/**
+ * @dev An asset's Chainlink price feed. `decimals` is the feed's and `assetDecimals` the asset's own,
+ *      both read when the feed is set so a reader never has to ask for either again; `assetDecimals`
+ *      is 0 when the asset answers no `decimals()` — a placeholder such as BTC behind WBTC / BTC, which
+ *      is only ever a quote. A feed quoted in another asset rather than in USD (LDO / ETH) names that
+ *      asset as `quote`, whose own feed prices the hop to USD; everything but `quote` shares the first
+ *      slot, so a USD feed's reader never touches the second.
+ */
+struct PriceFeed {
+    address feed;
+    uint32 maxAge;
+    uint8 decimals;
+    uint8 assetDecimals;
+    bool hasQuote;
+    address quote;
+}
+
+/**
+ * @dev Everything one market trade reads from the guard, in one call. See {IBittyV1Guard-marketTradeInfo}.
+ */
+struct MarketTradeInfo {
+    uint8 protocolCategory;
+    bool protocolDeprecated;
+    uint8 sellCategory;
+    uint8 buyCategory;
+    PriceFeed sellFeed;
+    PriceFeed sellQuoteFeed;
+    PriceFeed buyFeed;
+    PriceFeed buyQuoteFeed;
+    address sequencerUptimeFeed;
+}
 
 interface IBittyV1Guard {
     event AssetAdded(address indexed assetAddress, uint8 indexed category);
@@ -29,6 +64,8 @@ interface IBittyV1Guard {
     event ImplementationUnregistered(address indexed implementation);
     event ConfigSet(bytes32 indexed key, address value);
     event ConfigUintSet(bytes32 indexed key, uint256 value);
+    event PriceFeedSet(address indexed asset, address feed, uint32 maxAge, uint8 decimals, address quote);
+    event SequencerUptimeFeedSet(address feed);
 
     /**
      * @notice Add registered assets to Bitty.
@@ -209,4 +246,68 @@ interface IBittyV1Guard {
      * @param value The value to store under `key`.
      */
     function setUint(bytes32 key, uint256 value) external;
+
+    /**
+     * @notice Set the Chainlink price feed each asset is valued by. Restricted to ASSET_MANAGER_ROLE,
+     *         which keeps how an asset is valued with the role that decides which assets exist.
+     * @dev Each feed's `decimals()` and each asset's are read and stored here — the native asset,
+     *      address 0, as 18. A zero feed clears the asset's entry, and
+     *      an asset quoted in itself or with no staleness bound is refused.
+     * @param assets The assets to set feeds for.
+     * @param feeds The Chainlink feed proxy for each asset, or the zero address to clear it.
+     * @param maxAges The oldest answer, in seconds, each feed may give and still be trusted.
+     * @param quotes The asset each feed is quoted in, or the zero address for a USD feed.
+     */
+    function setPriceFeeds(
+        address[] calldata assets,
+        address[] calldata feeds,
+        uint32[] calldata maxAges,
+        address[] calldata quotes
+    ) external;
+
+    /**
+     * @notice The price feed set for an asset; all zero if none.
+     * @param asset The asset.
+     * @return The asset's price feed.
+     */
+    function priceFeed(address asset) external view returns (PriceFeed memory);
+
+    /**
+     * @notice Set the chain's Chainlink L2 sequencer uptime feed. Restricted to CONFIG_MANAGER_ROLE.
+     * @param feed The uptime feed, or the zero address on a chain without one.
+     */
+    function setSequencerUptimeFeed(address feed) external;
+
+    /**
+     * @notice The chain's Chainlink L2 sequencer uptime feed, or the zero address.
+     */
+    function sequencerUptimeFeed() external view returns (address);
+
+    /**
+     * @notice What an unpriced market trade checks in the guard, in one call: the protocol's category
+     *         and deprecation, and each token's category (0 is unregistered).
+     * @param protocol The market-trade protocol.
+     * @param sellToken The token sold.
+     * @param buyToken The token bought.
+     */
+    function marketTradeChecks(address protocol, address sellToken, address buyToken)
+        external
+        view
+        returns (uint8 protocolCategory, bool protocolDeprecated, uint8 sellCategory, uint8 buyCategory);
+
+    /**
+     * @notice Everything a priced market trade checks in the guard, in one call.
+     * @dev What {marketTradeChecks} answers, and also the feed of each token that is not a stablecoin,
+     *      the feed of the asset that one is quoted in if it is quoted, and — when either token needed
+     *      a feed — the sequencer uptime feed, except on Ethereum mainnet, which has no sequencer.
+     *      Unset feeds come back zero; whether that is acceptable is the reader's call.
+     * @param protocol The market-trade protocol.
+     * @param sellToken The token sold.
+     * @param buyToken The token bought.
+     * @return info The trade's guard data.
+     */
+    function marketTradeInfo(address protocol, address sellToken, address buyToken)
+        external
+        view
+        returns (MarketTradeInfo memory info);
 }
