@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: CC0-1.0
 pragma solidity ^0.8.34;
 
-import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC1967Utils} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {UUPSUpgradeable} from "openzeppelin-contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {console2} from "forge-std/console2.sol";
 import {BittyV1Guard} from "../src/BittyV1Guard.sol";
 import {IBittyV1Guard, IMPLEMENTATION_VAULT, CFG_OWNER, CFG_GAS_WRAPPED} from "../src/interfaces/IBittyV1Guard.sol";
-import {GUARD_BOOTSTRAP, GUARD_BOOTSTRAP_INITCODE} from "./GuardBootstrapInitCode.sol";
+import {GUARD_BOOTSTRAP, GUARD_BOOTSTRAP_INITCODE, GUARD_PROXY_CREATIONCODE} from "./GuardBootstrapInitCode.sol";
 import {DeployScript} from "./BaseDeploy.sol";
 
 interface ImmutableCreate2Factory {
@@ -59,14 +58,11 @@ abstract contract DeployGuard is DeployScript {
 
         address bootstrap = deployAtSaltZero(GUARD_BOOTSTRAP_INITCODE);
         require(bootstrap == GUARD_BOOTSTRAP, "DeployGuard: bootstrap address drifted");
-        bytes memory initCode = abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(bootstrap, bytes("")));
+        bytes memory initCode = abi.encodePacked(GUARD_PROXY_CREATIONCODE, abi.encode(bootstrap, bytes("")));
         console2.log("proxy initCode hash (mine the salt against this):");
         console2.logBytes32(keccak256(initCode));
 
-        require(
-            keccak256(initCode) == GUARD_PROXY_INITCODE_HASH,
-            "DeployGuard: proxy init code drifted - rebuild with the pinned toolchain or re-mine the salt"
-        );
+        require(keccak256(initCode) == GUARD_PROXY_INITCODE_HASH, "DeployGuard: proxy init code drifted");
 
         guard = create2Address(address(IMMUTABLE_CREATE2), GUARD_SALT, initCode);
         require(guard == EXPECTED_GUARD, "DeployGuard: guard address drifted");

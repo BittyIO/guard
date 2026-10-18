@@ -5,7 +5,11 @@ import {Test} from "lib/forge-std/src/Test.sol";
 import {ERC1967Proxy} from "openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {BittyV1GuardBootstrap} from "../../src/BittyV1GuardBootstrap.sol";
 import {DeployGuard} from "../../script/DeployGuard.sol";
-import {GUARD_BOOTSTRAP, GUARD_BOOTSTRAP_INITCODE} from "../../script/GuardBootstrapInitCode.sol";
+import {
+    GUARD_BOOTSTRAP,
+    GUARD_BOOTSTRAP_INITCODE,
+    GUARD_PROXY_CREATIONCODE
+} from "../../script/GuardBootstrapInitCode.sol";
 
 /**
  *  @dev Reads DeployGuard's pinned constants, so the test checks the values the deploy really uses.
@@ -40,8 +44,7 @@ contract GuardBootstrapPinTest is Test {
             vm.computeCreate2Address(bytes32(0), keccak256(GUARD_BOOTSTRAP_INITCODE), SIMPLE_CREATE2), GUARD_BOOTSTRAP
         );
 
-        bytes memory proxyInit =
-            abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(GUARD_BOOTSTRAP, bytes("")));
+        bytes memory proxyInit = abi.encodePacked(GUARD_PROXY_CREATIONCODE, abi.encode(GUARD_BOOTSTRAP, bytes("")));
         assertEq(keccak256(proxyInit), c.proxyInitCodeHash(), "proxy init code");
         assertEq(vm.computeCreate2Address(c.salt(), keccak256(proxyInit), IMMUTABLE_CREATE2), c.expectedGuard());
     }
@@ -52,6 +55,7 @@ contract GuardBootstrapPinTest is Test {
      */
     function test_pinnedBootstrapMatchesTheSourceButForMetadata() public pure {
         assertEq(_stripMetadata(GUARD_BOOTSTRAP_INITCODE), _stripMetadata(type(BittyV1GuardBootstrap).creationCode));
+        assertEq(_stripMetadata(GUARD_PROXY_CREATIONCODE), _stripMetadata(type(ERC1967Proxy).creationCode));
     }
 
     /**

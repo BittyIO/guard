@@ -8,7 +8,8 @@ import {PriceFeed, MarketTradeInfo} from "../../src/interfaces/IBittyV1Guard.sol
 
 /**
  * The 1.0.0 → 1.0.1 upgrade rehearsed on the live guard of each chain: everything 1.0.0 answers must
- * answer the same after it, and the new price-feed surface must work on top. Public RPCs, latest block.
+ * answer the same after it, and the new price-feed surface must work on top. Public RPCs, latest block; a
+ * chain whose guard is already past 1.0.0 is skipped, as there is nothing left to rehearse there.
  */
 contract UpgradeToV101ForkTest is Test {
     BittyV1Guard constant GUARD = BittyV1Guard(0x000000000F5fcD35885BfE4c700042cE7cb39554);
@@ -48,7 +49,7 @@ contract UpgradeToV101ForkTest is Test {
         internal
     {
         vm.createSelectFork(rpc);
-        assertEq(GUARD.versionName(), "1.0.0", "the live guard is 1.0.0");
+        if (keccak256(bytes(GUARD.versionName())) != keccak256("1.0.0")) vm.skip(true);
         Snapshot memory before = _snapshot(assets);
 
         BittyV1Guard next = new BittyV1Guard();
@@ -69,7 +70,7 @@ contract UpgradeToV101ForkTest is Test {
         assertEq(p.decimals, 8, "decimals read from the real Chainlink feed");
         assertEq(p.assetDecimals, 18, "and WETH's from the token");
 
-        MarketTradeInfo memory info = GUARD.marketTradeInfo(before.protocols[0], weth, stable);
+        MarketTradeInfo memory info = GUARD.marketTradeInfo(address(0), weth, stable); // no live guard has protocols yet
         assertEq(info.sellCategory, GUARD.assetCategory(weth));
         assertEq(info.sellFeed.feed, ethUsd);
     }
