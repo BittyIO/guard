@@ -89,6 +89,11 @@ interface IBittyV1Guard {
      *      dollar. Its price feed is left in place; a removed stablecoin needs one set (see
      *      {setPriceFeeds}) before it can be sold at market. Adding the asset again restores it in
      *      full and clears the kept category.
+     *
+     *      This sale is the only exit a forever-locked vault has when its escape destination (say,
+     *      an exchange) does not take the asset. Clearing the asset's feed freezes it at market
+     *      instead, and strands it in such vaults, so keep that for a token whose contract itself is
+     *      no longer safe to call.
      * @param assetAddresses The addresses of the assets.
      */
     function removeAssets(address[] memory assetAddresses) external;
