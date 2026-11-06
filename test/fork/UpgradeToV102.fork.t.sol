@@ -17,8 +17,12 @@ import {PriceFeed, MarketTradeInfo, ASSET_STABLE_COIN} from "../../src/interface
 contract UpgradeToV102ForkTest is Test {
     BittyV1Guard constant GUARD = BittyV1Guard(0x000000000F5fcD35885BfE4c700042cE7cb39554);
     uint256 constant BLOCKS_BEHIND_HEAD = 5;
-    /// The public Arbitrum node keeps no state that far back (a block is about a quarter second).
-    uint256 constant ARBITRUM_BLOCKS_BEHIND_HEAD = 0;
+    /**
+     * @dev Arbitrum and Robinhood Chain (an Arbitrum Orbit L2) make a block about every quarter second,
+     *      and their public nodes prune state that recent, failing with "historical state is not
+     *      available". Forked at head instead.
+     */
+    uint256 constant ORBIT_BLOCKS_BEHIND_HEAD = 0;
 
     struct Snapshot {
         address[] protocols;
@@ -138,7 +142,7 @@ contract UpgradeToV102ForkTest is Test {
         assets[0] = 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1; // WETH
         assets[1] = 0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f; // WBTC
         assets[2] = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831; // USDC
-        _rehearse("https://arb1.arbitrum.io/rpc", assets, ARBITRUM_BLOCKS_BEHIND_HEAD);
+        _rehearse("https://arb1.arbitrum.io/rpc", assets, ORBIT_BLOCKS_BEHIND_HEAD);
     }
 
     function test_robinhood() public {
@@ -146,6 +150,6 @@ contract UpgradeToV102ForkTest is Test {
         assets[0] = 0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73; // WETH
         assets[1] = 0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC; // NVDA
         assets[2] = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168; // USDG
-        _rehearse("https://rpc.mainnet.chain.robinhood.com", assets);
+        _rehearse("https://rpc.mainnet.chain.robinhood.com", assets, ORBIT_BLOCKS_BEHIND_HEAD);
     }
 }
