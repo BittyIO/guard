@@ -196,7 +196,7 @@ contract BittyV1GuardTest is Test {
         // reads them on every trade, so losing one would brick the fleet rather than just the guard.
         assertTrue(bittyGuard.isAssetRegistered(assets[0]), "assets survived");
         assertTrue(bittyGuard.isProtocolRegistered(marketTradeProtocol), "protocols survived");
-        assertEq(bittyGuard.versionName(), "1.0.1", "and the new code is the code answering");
+        assertEq(bittyGuard.versionName(), "1.0.2", "and the new code is the code answering");
     }
 
     function test_AddRegisteredAssets() public {
@@ -808,7 +808,7 @@ contract BittyV1GuardTest is Test {
 
         vm.prank(deployAdmin, deployAdmin);
         UUPSUpgradeable(proxy).upgradeToAndCall(build, "");
-        assertEq(BittyV1Guard(proxy).versionName(), "1.0.1", "the real build is live");
+        assertEq(BittyV1Guard(proxy).versionName(), "1.0.2", "the real build is live");
     }
 
     function _addProtocols(address[] memory protocols, uint8 category) internal {
@@ -1015,9 +1015,91 @@ contract BittyV1GuardTest is Test {
         assertEq(sellCat, 0, "unregistered reads as category 0");
     }
 
-    function test_GuardVersionIs1_0_1() public view {
-        assertEq(bittyGuard.guardVersion(), 1_000_001);
-        assertEq(bittyGuard.versionName(), "1.0.1");
+    // ── removed assets: sellable, never buyable (audit I-05) ────────────────────────────────────
+
+    /**
+     * Removal takes an asset out of the registry but keeps the category it had as an exit-only
+     * one, reported for the sold leg alone: a vault can sell what governance removed, never buy it.
+     */
+    function test_ARemovedAssetIsReportedForTheSoldLegOnly() public {
+        (address feed8,) = _priced();
+        _setFeed(address(mockWETH), feed8, 1 hours, address(0));
+        vm.prank(protocolOwner);
+        bittyGuard.removeAssets(_one(address(mockWETH)));
+
+        assertFalse(bittyGuard.isAssetRegistered(address(mockWETH)));
+        assertEq(bittyGuard.assetCategory(address(mockWETH)), 0);
+        assertEq(bittyGuard.removedAssetCategory(address(mockWETH)), ASSET_CRYPTO | ASSET_AMM_LIQUID);
+
+        MarketTradeInfo memory sell =
+            bittyGuard.marketTradeInfo(marketTradeProtocol, address(mockWETH), address(mockUSDC));
+        assertEq(sell.sellCategory, ASSET_CRYPTO | ASSET_AMM_LIQUID, "sold leg keeps its category");
+        assertEq(sell.sellFeed.feed, feed8, "and the feed that prices it");
+
+        MarketTradeInfo memory buy =
+            bittyGuard.marketTradeInfo(marketTradeProtocol, address(mockUSDC), address(mockWETH));
+        assertEq(buy.buyCategory, 0, "bought leg reads as unregistered");
+
+        (,, uint8 sellCat, uint8 buyCat) =
+            bittyGuard.marketTradeChecks(marketTradeProtocol, address(mockWETH), address(mockWETH));
+        assertEq(sellCat, ASSET_CRYPTO | ASSET_AMM_LIQUID);
+        assertEq(buyCat, 0);
+    }
+
+    /**
+     * A removed stablecoin is no longer counted as a dollar: removal is how a coin that lost its peg
+     * is taken out of use, so it is sold at its feed's price, which the guard then reports.
+     */
+    function test_ARemovedStablecoinIsPricedByItsFeed() public {
+        (address feed8,) = _priced();
+        _setFeed(address(mockUSDC), feed8, 1 days, address(0));
+        vm.startPrank(protocolOwner);
+        bittyGuard.addAssets(_one(address(mockUSDT)), _cats(1, ASSET_STABLE_COIN | ASSET_AMM_LIQUID));
+        bittyGuard.removeAssets(_one(address(mockUSDC)));
+        vm.stopPrank();
+
+        assertEq(bittyGuard.removedAssetCategory(address(mockUSDC)), ASSET_AMM_LIQUID);
+        MarketTradeInfo memory info =
+            bittyGuard.marketTradeInfo(marketTradeProtocol, address(mockUSDC), address(mockUSDT));
+        assertEq(info.sellCategory, ASSET_AMM_LIQUID);
+        assertEq(info.sellFeed.feed, feed8, "a removed stablecoin is priced");
+    }
+
+    function test_ReAddingARemovedAssetRestoresItAndClearsTheExitCategory() public {
+        _priced();
+        vm.startPrank(protocolOwner);
+        bittyGuard.removeAssets(_one(address(mockWETH)));
+        bittyGuard.addAssets(_one(address(mockWETH)), _cats(1, ASSET_CRYPTO));
+        vm.stopPrank();
+        assertEq(bittyGuard.removedAssetCategory(address(mockWETH)), 0);
+        assertEq(bittyGuard.assetCategory(address(mockWETH)), ASSET_CRYPTO);
+        (,, uint8 sellCat,) = bittyGuard.marketTradeChecks(marketTradeProtocol, address(mockWETH), address(mockUSDC));
+        assertEq(sellCat, ASSET_CRYPTO, "the new category, not the kept one");
+    }
+
+    function test_RemovingAnUnregisteredAssetKeepsNothing() public {
+        vm.prank(protocolOwner);
+        bittyGuard.removeAssets(_one(address(mockWBTC)));
+        assertEq(bittyGuard.removedAssetCategory(address(mockWBTC)), 0);
+    }
+
+    /**
+     * The exit category lives in a slot appended after the live layout, so upgrading a guard that
+     * already holds registrations leaves every one of them where it was.
+     */
+    function test_UpgradeKeepsRegistriesAndStartsWithNoExitCategories() public {
+        _priced();
+        address next = address(new BittyV1Guard());
+        vm.prank(deployAdmin);
+        UUPSUpgradeable(address(bittyGuard)).upgradeToAndCall(next, "");
+        assertEq(bittyGuard.assetCategory(address(mockWETH)), ASSET_CRYPTO | ASSET_AMM_LIQUID);
+        assertEq(bittyGuard.protocolCategory(marketTradeProtocol), PROTOCOL_MARKET_TRADE);
+        assertEq(bittyGuard.removedAssetCategory(address(mockWETH)), 0);
+    }
+
+    function test_GuardVersionIs1_0_2() public view {
+        assertEq(bittyGuard.guardVersion(), 1_000_002);
+        assertEq(bittyGuard.versionName(), "1.0.2");
     }
 
     function test_SetPriceFeedEmits() public {
