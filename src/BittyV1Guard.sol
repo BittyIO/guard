@@ -68,7 +68,10 @@ contract BittyV1Guard is IBittyV1Guard, Initializable, AccessControlDefaultAdmin
 
     address internal _sequencerUptimeFeed;
 
-    // Appended after every slot the live guard already uses: this contract is upgraded in place.
+    /**
+     * @dev The exit-only category {removeAssets} keeps for an asset it removes. Appended after every
+     *      slot the live guard already uses: this contract is upgraded in place.
+     */
     mapping(address asset => uint8) public removedAssetCategory;
 
     constructor() {
