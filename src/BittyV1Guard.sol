@@ -37,7 +37,7 @@ contract BittyV1Guard is IBittyV1Guard, Initializable, AccessControlDefaultAdmin
 
     using EnumerableSet for EnumerableSet.AddressSet;
 
-    uint256 private constant _VERSION = 1 * 1_000_000 + 0 * 1_000 + 1;
+    uint256 private constant _VERSION = 1 * 1_000_000 + 0 * 1_000 + 2;
 
     uint48 internal constant DEFAULT_ADMIN_TRANSFER_DELAY = 7 days;
 
@@ -67,6 +67,9 @@ contract BittyV1Guard is IBittyV1Guard, Initializable, AccessControlDefaultAdmin
     mapping(address asset => PriceFeed) internal _priceFeeds;
 
     address internal _sequencerUptimeFeed;
+
+    // Appended after every slot the live guard already uses: this contract is upgraded in place.
+    mapping(address asset => uint8) public removedAssetCategory;
 
     constructor() {
         _disableInitializers();
@@ -127,6 +130,7 @@ contract BittyV1Guard is IBittyV1Guard, Initializable, AccessControlDefaultAdmin
             }
             _assets[asset] = true;
             assetCategory[asset] = categories[i];
+            delete removedAssetCategory[asset];
             emit AssetAdded(asset, categories[i]);
         }
     }
@@ -136,6 +140,7 @@ contract BittyV1Guard is IBittyV1Guard, Initializable, AccessControlDefaultAdmin
             address asset = assetAddresses[i];
             if (_assets[asset]) {
                 _assets[asset] = false;
+                removedAssetCategory[asset] = assetCategory[asset] & ~ASSET_STABLE_COIN;
                 assetCategory[asset] = 0;
                 emit AssetRemoved(asset);
             }
@@ -326,9 +331,19 @@ contract BittyV1Guard is IBittyV1Guard, Initializable, AccessControlDefaultAdmin
         return (
             protocolCategory[protocol],
             _deprecatedProtocols.contains(protocol),
-            assetCategory[sellToken],
+            _sellCategory(sellToken),
             assetCategory[buyToken]
         );
+    }
+
+    /**
+     * @dev The category a token may be SOLD under: its own, or for an asset {removeAssets} took out,
+     *      the exit-only one it kept. The bought leg always reads {assetCategory}, so a removed asset
+     *      can be sold but never bought.
+     */
+    function _sellCategory(address token) private view returns (uint8 category) {
+        category = assetCategory[token];
+        if (category == 0) category = removedAssetCategory[token];
     }
 
     function marketTradeInfo(address protocol, address sellToken, address buyToken)
@@ -339,7 +354,7 @@ contract BittyV1Guard is IBittyV1Guard, Initializable, AccessControlDefaultAdmin
     {
         info.protocolCategory = protocolCategory[protocol];
         info.protocolDeprecated = _deprecatedProtocols.contains(protocol);
-        info.sellCategory = assetCategory[sellToken];
+        info.sellCategory = _sellCategory(sellToken);
         info.buyCategory = assetCategory[buyToken];
 
         bool sellPriced = info.sellCategory & ASSET_STABLE_COIN == 0;

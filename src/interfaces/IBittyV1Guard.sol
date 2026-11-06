@@ -79,11 +79,28 @@ interface IBittyV1Guard {
 
     /**
      * @notice Remove a registered asset from Bitty.
-     * @dev Remove a registered asset from Bitty.
-     *      A removed asset can only be sold instead of being bought.
+     * @dev A removed asset can only be sold instead of being bought. It leaves the registry, so
+     *      {isAssetRegistered} and {assetCategory} answer false and 0 and nothing can buy it, but the
+     *      category it had is kept as its {removedAssetCategory}, which {marketTradeInfo} reports for
+     *      the SOLD leg only, so vaults holding it can still sell it at market.
+     *
+     *      The kept category drops {ASSET_STABLE_COIN}: an asset taken out of use is usually one that
+     *      can no longer be trusted at its peg, so it is priced by its feed rather than counted as a
+     *      dollar. Its price feed is left in place; a removed stablecoin needs one set (see
+     *      {setPriceFeeds}) before it can be sold at market. Adding the asset again restores it in
+     *      full and clears the kept category.
      * @param assetAddresses The addresses of the assets.
      */
     function removeAssets(address[] memory assetAddresses) external;
+
+    /**
+     * @notice The exit-only category of an asset {removeAssets} took out of the registry.
+     * @dev The category it had, without {ASSET_STABLE_COIN}; 0 for an asset that is registered or
+     *      was never removed. Used for the sold leg of a market trade and nothing else.
+     * @param assetAddress The address of the asset.
+     * @return uint8 The kept category.
+     */
+    function removedAssetCategory(address assetAddress) external view returns (uint8);
 
     /**
      * @notice Check if an asset is registered.
@@ -96,7 +113,7 @@ interface IBittyV1Guard {
     /**
      * @notice The category an asset was registered under.
      * @param assetAddress The address of the asset.
-     * @return uint8 The category, or 0 for an address that was never registered.
+     * @return uint8 The category, or 0 for an address that was never registered or has been removed.
      */
     function assetCategory(address assetAddress) external view returns (uint8);
 
@@ -285,7 +302,9 @@ interface IBittyV1Guard {
 
     /**
      * @notice What an unpriced market trade checks in the guard, in one call: the protocol's category
-     *         and deprecation, and each token's category (0 is unregistered).
+     *         and deprecation, and each token's category (0 is unregistered). The sold token's is
+     *         its {removedAssetCategory} when the guard has removed it, so a removed asset can be
+     *         sold but not bought.
      * @param protocol The market-trade protocol.
      * @param sellToken The token sold.
      * @param buyToken The token bought.
