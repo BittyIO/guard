@@ -31,3 +31,10 @@ robinhood = { key = "${ETHERSCAN_API_KEY}", chain = 4663, url = "https://api.eth
 arbitrum = { key = "${ETHERSCAN_API_KEY}", chain = 42161 }
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
+
+# TRON. Same sources and settings as the default build, targeting the TVM: probed on 2026-11-07
+# (vault/tron `cli.mjs probe`), mainnet and Nile both run PUSH0, TSTORE/TLOAD and MCOPY, so cancun.
+# Its own output directory, so the TRON deploy runner never reads an EVM artifact.
+[profile.tron]
+evm_version = "cancun"
+out = "out-tron"
