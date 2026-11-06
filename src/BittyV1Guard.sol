@@ -41,6 +41,11 @@ contract BittyV1Guard is IBittyV1Guard, Initializable, AccessControlDefaultAdmin
 
     uint48 internal constant DEFAULT_ADMIN_TRANSFER_DELAY = 7 days;
 
+    /**
+     * @dev TRON: the native coin is TRX, counted in sun (6 decimals), not wei.
+     */
+    uint8 internal constant NATIVE_DECIMALS = 6;
+
     bytes32 public constant ASSET_MANAGER_ROLE = keccak256("ASSET_MANAGER_ROLE");
     bytes32 public constant PROTOCOL_MANAGER_ROLE = keccak256("PROTOCOL_MANAGER_ROLE");
     bytes32 public constant IMPLEMENTATION_MANAGER_ROLE = keccak256("IMPLEMENTATION_MANAGER_ROLE");
@@ -301,11 +306,11 @@ contract BittyV1Guard is IBittyV1Guard, Initializable, AccessControlDefaultAdmin
     }
 
     /**
-     * @dev The native asset is 18; anything that answers no `decimals()` is 0, which a reader takes to
-     *      mean "ask the token".
+     * @dev The native asset is TRX, 6 decimals (1 TRX = 1,000,000 sun); anything that answers no
+     *      `decimals()` is 0, which a reader takes to mean "ask the token".
      */
     function _assetDecimals(address asset) private view returns (uint8) {
-        if (asset == address(0)) return 18;
+        if (asset == address(0)) return NATIVE_DECIMALS;
         (bool ok, bytes memory data) = asset.staticcall(abi.encodeCall(IDecimals.decimals, ()));
         if (!ok || data.length < 32) return 0;
         uint256 d = abi.decode(data, (uint256));

@@ -874,9 +874,12 @@ contract BittyV1GuardTest is Test {
         assertEq(bittyGuard.priceFeed(btc).decimals, 8);
     }
 
-    function test_TheNativeAssetIs18Decimals() public {
+    /**
+     * TRON: the native coin is TRX, counted in sun.
+     */
+    function test_TheNativeAssetIs6Decimals() public {
         _setFeed(address(0), address(new DecimalsFeed(8)), 1 hours, address(0));
-        assertEq(bittyGuard.priceFeed(address(0)).assetDecimals, 18);
+        assertEq(bittyGuard.priceFeed(address(0)).assetDecimals, 6);
     }
 
     function test_AQuotedFeedRecordsItsQuote() public {
