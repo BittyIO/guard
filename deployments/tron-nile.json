@@ -39,5 +39,10 @@
     "protocols is empty on purpose: the SunSwap adapter is built with the guard's address, so it is deployed after the guard and registered then (addProtocols).",
     "priceFeeds: Chainlink TRX/USD, 8 decimals. maxAge 25h is a placeholder; confirm the feed's heartbeat before mainnet."
   ],
-  "deployed": {}
+  "deployed": {
+    "CREATE2_DEPLOYER": {
+      "evm": "0xC18fFef1d0a3911dCe1cE524e022890F7E207A2F",
+      "base58": "TTcfv6F8mJLtfVZDM3D2V4UA7LQpEkxAgK"
+    }
+  }
 }

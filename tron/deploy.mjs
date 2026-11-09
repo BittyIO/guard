@@ -46,6 +46,43 @@ const chain = new Chain({
 });
 
 console.log(`TRON ${config.network} (chain ${config.chainId})${dryRun ? " - dry run, nothing is sent" : ""}`);
+
+// 0. the DEPLOYER must be a funded TRON account. An address is not an account until it has received
+//    TRX, and the node refuses every transaction from one that is not ("account … does not exist").
+//    The whole guard deploy burns about 5M energy when none is staked; checked here, before the build,
+//    so an unfunded run stops with the address to fund instead of failing on its first send.
+const GUARD_DEPLOY_ENERGY = 5_000_000;
+const BANDWIDTH_TRX = 30;
+{
+  const deployerBase58 = toBase58(config.DEPLOYER);
+  const account = await chain.tronWeb.trx.getAccount(deployerBase58);
+  const balanceTrx = (account?.balance ?? 0) / 1_000_000;
+  const params = await chain.tronWeb.trx.getChainParameters();
+  const energyFeeSun = params.find((p) => p.key === "getEnergyFee")?.value ?? 100;
+  const neededTrx = Math.ceil((GUARD_DEPLOY_ENERGY * energyFeeSun) / 1_000_000 + BANDWIDTH_TRX);
+  const exists = Boolean(account?.address);
+  console.log(`DEPLOYER ${deployerBase58} (${toEvm(config.DEPLOYER)}): ${exists ? `${balanceTrx} TRX` : "no account yet"}`);
+  if (!exists || balanceTrx < neededTrx) {
+    const message = [
+      "",
+      `Fund the DEPLOYER on TRON ${config.network} before deploying:`,
+      "",
+      `    ${deployerBase58}`,
+      "",
+      `  balance now: ${exists ? `${balanceTrx} TRX` : "none (the account does not exist until it receives TRX)"}`,
+      `  needed:      about ${neededTrx} TRX (${GUARD_DEPLOY_ENERGY / 1e6}M energy at ${energyFeeSun} sun, plus bandwidth),`,
+      "               less if the account has staked energy",
+      ...(config.network === "nile" ? ["  Nile test TRX: https://nileex.io/join/getJoinPage"] : []),
+      "",
+    ].join("\n");
+    if (!dryRun) {
+      console.error(message);
+      process.exit(1);
+    }
+    console.log(message + "  [dry-run] continuing anyway, to show what would be sent\n");
+  }
+}
+
 forgeBuild(repo);
 
 // 1. the CREATE2 deployer every Bitty contract on this network is placed through
@@ -53,6 +90,14 @@ const deployer = await deployCreate2Deployer({ chain, repo, config, build: false
 if (!deployer) {
   console.log("  [dry-run] every guard address depends on where the CREATE2 deployer lands, so the plan stops here");
   process.exit(0);
+}
+// Saved now, not with the rest at the end: every guard address hangs off this one, so if a later step
+// fails, a re-run must reuse it - a second deployer would move every address and strand what is
+// already deployed.
+if (!dryRun && config.deployed.CREATE2_DEPLOYER?.evm !== toEvm(deployer)) {
+  config.deployed.CREATE2_DEPLOYER = { evm: toEvm(deployer), base58: toBase58(deployer) };
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+  console.log(`CREATE2 deployer recorded in deployments/${values.network}.json`);
 }
 
 // 2. the guard
