@@ -161,6 +161,30 @@ CREATE2 proxy deployment and the first upgrade are gas-heavy. If a broadcast tx 
 
 The script logs the implementation address, bootstrap address, and proxy init-code hash. Keep all three — the implementation is what you verify, the bootstrap is the proxy constructor argument forever, and the init-code hash is what you re-mine against if bootstrap bytecode changes.
 
+### Deploy to TRON
+
+TRON is the one exception to "one address on every chain". Forge cannot broadcast there (TRON's JSON-RPC accepts no transactions), neither CREATE2 factory above exists there, and the TVM's CREATE2 hashes with a `0x41` prefix where the EVM uses `0xff`. So the TRON deploy is a Node script, `tron/deploy.mjs`, and the guard gets a different address on Nile and on mainnet.
+
+It runs the same steps as the forge scripts, from the same pinned bootstrap and proxy code and with the `[profile.tron]` build (native TRX counted in 6 decimals):
+
+1. deploys `BittyTronCreate2Deployer` (`script/tron/`), once per network: TRON's stand-in for the canonical CREATE2 deployer, which every later Bitty contract on that network also deploys through;
+2. creates the implementation, bootstrap and proxy through it, upgrades the proxy, and initializes it with the network's assets;
+3. sets `CFG_OWNER`, `CFG_GAS_WRAPPED` (WTRX) and the price feeds.
+
+Inputs and outputs live in `deployments/tron-nile.json` and `deployments/tron.json`. The registry starts with no protocol: the SunSwap adapter is built with the guard's address, so it is deployed afterwards and then added to `protocols` there. A re-run registers it with `addProtocols`. Every step is skipped once done, so a re-run also finishes an interrupted deploy.
+
+```shell
+cd tron && npm ci
+export TRON_PRIVATE_KEY=...   # the DEPLOYER key: the bootstrap's upgrade and initialize gate on tx.origin
+export TRON_PRO_API_KEY=...   # optional; TronGrid rate-limits keyless callers
+
+node deploy.mjs --network tron-nile --dry-run   # what would be sent; no key needed
+node deploy.mjs --network tron-nile             # Nile (testnet)
+node deploy.mjs --network tron                  # TRON mainnet
+```
+
+Deploying the guard takes about 4M energy, mostly the implementation (3.5M). Set `feeLimitTrx` in the network file to cover it if the DEPLOYER has no staked energy.
+
 ## Verifying the contract
 
 Because the guard is a proxy, **three** contracts must be verified — the proxy, the implementation behind it, and the bootstrap it was born on — and the proxy must additionally be linked to its implementation so explorers show the registry's real ABI. Verifying only the proxy leaves the guard looking like an empty contract on Etherscan.

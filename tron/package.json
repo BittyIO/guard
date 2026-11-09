@@ -1,0 +1,15 @@
+{
+  "name": "bitty-guard-tron",
+  "private": true,
+  "type": "module",
+  "description": "Deploys the Bitty guard to TRON (forge cannot broadcast there).",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "deploy:nile": "node deploy.mjs --network tron-nile",
+    "deploy:tron": "node deploy.mjs --network tron"
+  },
+  "dependencies": {
+    "ethers": "6.13.4",
+    "tronweb": "6.5.1"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "network": "nile",
+  "fullHost": "https://nile.trongrid.io",
+  "chainId": 3448148188,
+  "explorer": "https://nile.tronscan.org",
+  "feeLimitTrx": 1000,
+  "DEPLOYER": "0x12EE2de7BF086388B1D560eb95e7191Edfab9823",
+  "tokens": {
+    "WTRX": "TYsbWxNnyTgsZaTFaue9hqpxkU3Fkco94a",
+    "USDT": "TXYZopYRdj2D9XRtbG411XZZ3kM5VkAeBf"
+  },
+  "assets": [
+    {
+      "token": "WTRX",
+      "category": 6,
+      "_category": "ASSET_CRYPTO | ASSET_AMM_LIQUID"
+    },
+    {
+      "token": "USDT",
+      "category": 5,
+      "_category": "ASSET_STABLE_COIN | ASSET_AMM_LIQUID"
+    }
+  ],
+  "protocols": [],
+  "priceFeeds": [
+    {
+      "token": "native",
+      "feed": "TWZ37cpV6LJAoTNuiqEWrEUxQLvvKGmbrm",
+      "maxAge": 90000
+    },
+    {
+      "token": "WTRX",
+      "feed": "TWZ37cpV6LJAoTNuiqEWrEUxQLvvKGmbrm",
+      "maxAge": 90000
+    }
+  ],
+  "_notes": [
+    "Inputs above; the deploy writes its outputs under `deployed`. Token and feed addresses were checked on-chain on 2026-11-07.",
+    "protocols is empty on purpose: the SunSwap adapter is built with the guard's address, so it is deployed after the guard and registered then (addProtocols).",
+    "priceFeeds: Chainlink TRX/USD, 8 decimals. maxAge 25h is a placeholder; confirm the feed's heartbeat before mainnet."
+  ],
+  "deployed": {}
+}
