@@ -155,6 +155,9 @@ forge script script/BittyV1GuardArbitrum.s.sol:Deploy --rpc-url arbitrum --broad
 
 # Robinhood Chain (4663)
 forge script script/BittyV1GuardRobinhood.s.sol:Deploy --rpc-url robinhood --broadcast -vvvv
+
+# BNB Smart Chain (56; Foundry calls it `bsc`). WBNB is the gas-wrapped token; every token is 18 decimals
+forge script script/BittyV1GuardBsc.s.sol:Deploy --rpc-url bsc --broadcast -vvvv
 ```
 
 CREATE2 proxy deployment and the first upgrade are gas-heavy. If a broadcast tx fails with status `0` and uses almost all of its gas limit, re-run with a higher estimate multiplier, for example `--gas-estimate-multiplier 400` (or more). The script is idempotent — a partial run can be finished by broadcasting again.
@@ -243,12 +246,13 @@ The same thing is available in the UI under *Contract → More Options → Is th
 
 ### Other chains
 
-Swap `--chain sepolia` for `mainnet`, `base`, or `arbitrum`, and the `chainid` in the proxy API for `1`, `8453`, or `42161`:
+Swap `--chain sepolia` for `mainnet`, `base`, `arbitrum` or `bsc`, and the `chainid` in the proxy API for `1`, `8453`, `42161` or `56`:
 
 ```shell
 forge verify-contract --chain mainnet  --watch <IMPL> src/BittyV1Guard.sol:BittyV1Guard
 forge verify-contract --chain base     --watch <IMPL> src/BittyV1Guard.sol:BittyV1Guard
 forge verify-contract --chain arbitrum --watch <IMPL> src/BittyV1Guard.sol:BittyV1Guard
+forge verify-contract --chain bsc      --watch <IMPL> src/BittyV1Guard.sol:BittyV1Guard
 ```
 
 ### Verifying at deploy time
