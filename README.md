@@ -42,11 +42,15 @@ The three category namespaces are independent — the same number means differen
 | `ASSET_STABLE_COIN` | `1` (`0b0001`) | Assets | bit flag |
 | `ASSET_CRYPTO` | `2` (`0b0010`) | Assets | bit flag |
 | `ASSET_AMM_LIQUID` | `4` (`0b0100`) | Assets | bit flag (LP / pool liquidity) |
+| `ASSET_BRIDGEABLE` | `8` (`0b1000`) | Assets | bit flag (a vault may bridge it to another chain) |
 | `PROTOCOL_STAKING` | `1` | Protocols | single value |
 | `PROTOCOL_LENDING` | `2` | Protocols | single value |
 | `PROTOCOL_MARKET_TRADE` | `3` | Protocols | single value |
 | `PROTOCOL_INTENT` | `4` | Protocols | single value |
+| `PROTOCOL_BRIDGE` | `5` | Protocols | single value (cross-chain bridge adapter) |
 | `IMPLEMENTATION_VAULT` | `1` | Implementations | single value |
+
+**Bridging** needs three things: the adapter registered as `PROTOCOL_BRIDGE`, the asset carrying `ASSET_BRIDGEABLE`, and, for the Across adapter, a route per (input token, destination chain) set with `setUint`. The route's key is `AcrossBridgeProtocol.routeKey(inputToken, destinationChainId)` and its value `AcrossBridgeProtocol.packRoute(outputToken, outputDecimals, maxCostBps)`: the token that must arrive, its decimals, and the most the bridge may keep (the adapter caps this at 3%). The native coin's route is keyed by Across's wrapped native token. A vault bridges the native coin through its wrapped gas token, so Sepolia's WETH is registered as `ASSET_CRYPTO | ASSET_AMM_LIQUID | ASSET_BRIDGEABLE` (`14`). Adding the flag to an asset already registered means calling `addAssets` again with the full mask, since `addAssets` overwrites the category. None of this needed a change to the guard's code: it stores any non-zero category, and any config integer, verbatim.
 
 There is no separate AMM or market-maker protocol category. Spot-style routing uses **market trade** adapters; deprecated lending/staking (and legacy pool) protocols stay registered as **deprecated** so vaults can exit positions only.
 
@@ -155,6 +159,9 @@ forge script script/BittyV1GuardArbitrum.s.sol:Deploy --rpc-url arbitrum --broad
 
 # Robinhood Chain (4663)
 forge script script/BittyV1GuardRobinhood.s.sol:Deploy --rpc-url robinhood --broadcast -vvvv
+
+# BNB Smart Chain (56; Foundry calls it `bsc`). WBNB is the gas-wrapped token; every token is 18 decimals
+forge script script/BittyV1GuardBsc.s.sol:Deploy --rpc-url bsc --broadcast -vvvv
 ```
 
 CREATE2 proxy deployment and the first upgrade are gas-heavy. If a broadcast tx fails with status `0` and uses almost all of its gas limit, re-run with a higher estimate multiplier, for example `--gas-estimate-multiplier 400` (or more). The script is idempotent — a partial run can be finished by broadcasting again.
@@ -243,12 +250,13 @@ The same thing is available in the UI under *Contract → More Options → Is th
 
 ### Other chains
 
-Swap `--chain sepolia` for `mainnet`, `base`, or `arbitrum`, and the `chainid` in the proxy API for `1`, `8453`, or `42161`:
+Swap `--chain sepolia` for `mainnet`, `base`, `arbitrum` or `bsc`, and the `chainid` in the proxy API for `1`, `8453`, `42161` or `56`:
 
 ```shell
 forge verify-contract --chain mainnet  --watch <IMPL> src/BittyV1Guard.sol:BittyV1Guard
 forge verify-contract --chain base     --watch <IMPL> src/BittyV1Guard.sol:BittyV1Guard
 forge verify-contract --chain arbitrum --watch <IMPL> src/BittyV1Guard.sol:BittyV1Guard
+forge verify-contract --chain bsc      --watch <IMPL> src/BittyV1Guard.sol:BittyV1Guard
 ```
 
 ### Verifying at deploy time

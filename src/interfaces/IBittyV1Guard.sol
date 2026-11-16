@@ -12,11 +12,13 @@ error InvalidPriceFeed(address asset);
 uint8 constant ASSET_STABLE_COIN = 1;
 uint8 constant ASSET_CRYPTO = 2;
 uint8 constant ASSET_AMM_LIQUID = 4;
+uint8 constant ASSET_BRIDGEABLE = 8;
 
 uint8 constant PROTOCOL_STAKING = 1;
 uint8 constant PROTOCOL_LENDING = 2;
 uint8 constant PROTOCOL_MARKET_TRADE = 3;
 uint8 constant PROTOCOL_INTENT = 4;
+uint8 constant PROTOCOL_BRIDGE = 5;
 
 uint8 constant IMPLEMENTATION_VAULT = 1;
 
