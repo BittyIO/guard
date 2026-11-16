@@ -82,6 +82,15 @@ abstract contract DeployGuard is DeployScript {
         saveAddress("BITTY_GUARD", guard);
     }
 
+    /**
+     * @dev The config key of the chain's wrapped native coin, which becomes CFG_GAS_WRAPPED: what a
+     *      vault wraps the native coin it receives into, and pays gas-coin fees in. WETH on every chain
+     *      whose native coin is ETH; a chain with another coin names its own (BNB Chain: WBNB).
+     */
+    function _gasWrappedKey() internal view virtual returns (string memory) {
+        return "WETH";
+    }
+
     function _configure(address guardAddress) internal {
         IBittyV1Guard guard = IBittyV1Guard(guardAddress);
         address owner = getAddress("DEPLOYER");
@@ -89,7 +98,7 @@ abstract contract DeployGuard is DeployScript {
             guard.setAddress(CFG_OWNER, owner);
             console2.log("CFG_OWNER set", owner);
         }
-        address gasWrapped = getAddress("WETH");
+        address gasWrapped = getAddress(_gasWrappedKey());
         if (guard.getAddress(CFG_GAS_WRAPPED) != gasWrapped) {
             guard.setAddress(CFG_GAS_WRAPPED, gasWrapped);
             console2.log("CFG_GAS_WRAPPED set", gasWrapped);
