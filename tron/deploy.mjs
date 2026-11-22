@@ -6,10 +6,14 @@
 //   node tron/deploy.mjs --network tron-nile --dry-run     what would be sent; no key needed
 //   node tron/deploy.mjs --network tron-nile               Nile
 //   node tron/deploy.mjs --network tron                    TRON mainnet
+//   node tron/deploy.mjs --network tron --rpc <node url>   through another node (e.g. Alchemy's)
 //
 // Env: TRON_PRIVATE_KEY - the DEPLOYER key (hex). The bootstrap's upgrade and initialize gate on
 //      tx.origin == DEPLOYER, so no other key can finish a deploy.
 //      TRON_PRO_API_KEY - optional, TronGrid rate limits.
+//      TRON_FULL_HOST - optional, same as --rpc: a node URL to use instead of the config's fullHost
+//      (e.g. one with a provider key in its path). Never written to deployments/<network>.json, so the
+//      key is not committed. The node must serve /wallet/* and /jsonrpc.
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -24,10 +28,11 @@ const { values } = parseArgs({
   options: {
     network: { type: "string" },
     "dry-run": { type: "boolean", default: false },
+    rpc: { type: "string" },
   },
 });
 if (!values.network) {
-  console.error("usage: node tron/deploy.mjs --network <tron-nile|tron> [--dry-run]");
+  console.error("usage: node tron/deploy.mjs --network <tron-nile|tron> [--dry-run] [--rpc <node url>]");
   process.exit(1);
 }
 
@@ -38,7 +43,7 @@ const dryRun = values["dry-run"];
 if (!dryRun && !process.env.TRON_PRIVATE_KEY) throw new Error("TRON_PRIVATE_KEY is not set (or pass --dry-run)");
 
 const chain = new Chain({
-  fullHost: config.fullHost,
+  fullHost: values.rpc || process.env.TRON_FULL_HOST || config.fullHost,
   privateKey: process.env.TRON_PRIVATE_KEY,
   apiKey: process.env.TRON_PRO_API_KEY,
   feeLimitTrx: config.feeLimitTrx,
@@ -49,19 +54,29 @@ console.log(`TRON ${config.network} (chain ${config.chainId})${dryRun ? " - dry 
 
 // 0. the DEPLOYER must be a funded TRON account. An address is not an account until it has received
 //    TRX, and the node refuses every transaction from one that is not ("account … does not exist").
-//    The whole guard deploy burns about 5M energy when none is staked; checked here, before the build,
-//    so an unfunded run stops with the address to fund instead of failing on its first send.
+//    The whole guard deploy uses about 4.6M energy (4,531,379 on Nile, 2026-11-09) and 26 KB of
+//    bandwidth; whatever the account does not already have (staked or rented) is burned from its
+//    TRX. Checked here, before the build, so an underfunded run stops with the address to fund
+//    instead of failing on its first send.
 const GUARD_DEPLOY_ENERGY = 5_000_000;
-const BANDWIDTH_TRX = 30;
+const GUARD_DEPLOY_BANDWIDTH = 30_000; // bytes; each one missing burns 1,000 sun
 {
   const deployerBase58 = toBase58(config.DEPLOYER);
   const account = await chain.tronWeb.trx.getAccount(deployerBase58);
   const balanceTrx = (account?.balance ?? 0) / 1_000_000;
   const params = await chain.tronWeb.trx.getChainParameters();
   const energyFeeSun = params.find((p) => p.key === "getEnergyFee")?.value ?? 100;
-  const neededTrx = Math.ceil((GUARD_DEPLOY_ENERGY * energyFeeSun) / 1_000_000 + BANDWIDTH_TRX);
   const exists = Boolean(account?.address);
+  // Energy and bandwidth on hand: staked by the account itself or delegated to it (rented).
+  const res = exists ? await chain.tronWeb.trx.getAccountResources(deployerBase58) : {};
+  const energy = Math.max(0, (res.EnergyLimit ?? 0) - (res.EnergyUsed ?? 0));
+  const bandwidth = Math.max(0, (res.NetLimit ?? 0) - (res.NetUsed ?? 0));
+  const energyShort = Math.max(0, GUARD_DEPLOY_ENERGY - energy);
+  const bandwidthShort = Math.max(0, GUARD_DEPLOY_BANDWIDTH - bandwidth);
+  // At least 10 TRX even when every resource is on hand, for the odd estimate that runs over.
+  const neededTrx = Math.max(10, Math.ceil((energyShort * energyFeeSun + bandwidthShort * 1_000) / 1_000_000));
   console.log(`DEPLOYER ${deployerBase58} (${toEvm(config.DEPLOYER)}): ${exists ? `${balanceTrx} TRX` : "no account yet"}`);
+  console.log(`  energy ${energy} of ~${GUARD_DEPLOY_ENERGY} on hand, bandwidth ${bandwidth} of ~${GUARD_DEPLOY_BANDWIDTH} bytes`);
   if (!exists || balanceTrx < neededTrx) {
     const message = [
       "",
@@ -70,8 +85,8 @@ const BANDWIDTH_TRX = 30;
       `    ${deployerBase58}`,
       "",
       `  balance now: ${exists ? `${balanceTrx} TRX` : "none (the account does not exist until it receives TRX)"}`,
-      `  needed:      about ${neededTrx} TRX (${GUARD_DEPLOY_ENERGY / 1e6}M energy at ${energyFeeSun} sun, plus bandwidth),`,
-      "               less if the account has staked energy",
+      `  needed:      about ${neededTrx} TRX, to burn for the ${energyShort} energy and ${bandwidthShort} bytes of`,
+      `               bandwidth not on hand (${energyFeeSun} sun per energy); rent energy first to need less`,
       ...(config.network === "nile" ? ["  Nile test TRX: https://nileex.io/join/getJoinPage"] : []),
       "",
     ].join("\n");
