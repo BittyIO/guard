@@ -38,6 +38,11 @@ import {DeployScript} from "./BaseDeploy.sol";
  *
  *      A route's value packs the output token, its decimals and the most the bridge may keep, in the
  *      layout of protocol-store's AcrossBridgeProtocol.packRoute.
+ *
+ *      TRON is a destination too, for USDT only: Across carries Ethereum, Base, Arbitrum and BNB Chain
+ *      USDT to TRON's USDT (TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t, 6 decimals) and back. The way back is
+ *      the TRON guard's to set (protocol-store tron/across.mjs routes --set). A route to TRON reaches
+ *      a vault only through an adapter built with TRON's vault factory (protocol-store 1.1.1).
  */
 contract AcrossRoutes is DeployScript {
     bytes32 internal constant ROUTE_KEY = keccak256("bitty.bridge.across.route");
@@ -45,6 +50,15 @@ contract AcrossRoutes is DeployScript {
     /// @dev 1%: Across's live cost for $100 is 0.01-0.08% between these chains, and about 1% only near
     ///      $5, so this refuses only bridges too small to be worth their gas. Max 300 (the adapter's cap).
     uint16 internal constant MAX_COST_BPS = 100;
+
+    /// @dev Into TRON Across charges a flat ~6.1 USDT (quoted 2026-11-22: 100 USDT -> 93.9, 1,000 ->
+    ///      993.8, from all four chains), so 1% would refuse anything under ~620 USDT. 3%, the
+    ///      adapter's cap, lets ~205 USDT and up through (chosen 2026-11-22).
+    uint16 internal constant MAX_COST_BPS_TO_TRON = 300;
+    uint256 internal constant TRON_CHAIN_ID = 728126428;
+    /// @dev TRON USDT, TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t: the 20 bytes behind the T… address.
+    address internal constant TRON_USDT = 0xa614f803B6FD780986A42c78Ec9c7f77e6DeD13C;
+    uint256 internal constant KIND_USDT = 2;
 
     uint256 internal constant N_CHAINS = 5;
     uint256 internal constant N_KINDS = 3;
@@ -144,6 +158,17 @@ contract AcrossRoutes is DeployScript {
                 if (guard.getUint(key) == value) continue;
                 guard.setUint(key, value);
                 console2.log(string.concat("route ", from.key, " -> ", to.key, " on"), there);
+            }
+        }
+        // USDT to TRON, from every chain here that holds USDT (Robinhood holds none).
+        Token memory usdt = _token(here, KIND_USDT);
+        if (usdt.token != address(0)) {
+            routes++;
+            bytes32 key = routeKey(usdt.token, TRON_CHAIN_ID);
+            uint256 value = packRoute(TRON_USDT, 6, MAX_COST_BPS_TO_TRON);
+            if (guard.getUint(key) != value) {
+                guard.setUint(key, value);
+                console2.log(string.concat("route ", usdt.key, " -> USDT on TRON"), TRON_CHAIN_ID);
             }
         }
         console2.log("routes from this chain:", routes);
