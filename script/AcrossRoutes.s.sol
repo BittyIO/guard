@@ -9,7 +9,8 @@ import {DeployScript} from "./BaseDeploy.sol";
 /**
  * @notice Turns on Across bridging between Ethereum, Base, Arbitrum, BNB Chain and Robinhood Chain on
  *         the guard of the chain it runs against: marks the chain's bridged tokens bridgeable, and
- *         writes the route from each of them to every other chain Across serves for it. Run it once
+ *         writes the route from each of them to every other chain Across serves for it, and marks
+ *         every one of those chains EVM for the vault's every-EVM-chain recipients. Run it once
  *         per chain, by the holder of the guard's asset and config manager roles.
  *
  * @dev The guard is already initialized on these chains, so this cannot ride on the chain's guard
@@ -51,14 +52,24 @@ contract AcrossRoutes is DeployScript {
     ///      $5, so this refuses only bridges too small to be worth their gas. Max 300 (the adapter's cap).
     uint16 internal constant MAX_COST_BPS = 100;
 
-    /// @dev Into TRON Across charges a flat ~6.1 USDT (quoted 2026-11-22: 100 USDT -> 93.9, 1,000 ->
-    ///      993.8, from all four chains), so 1% would refuse anything under ~620 USDT. 3%, the
-    ///      adapter's cap, lets ~205 USDT and up through (chosen 2026-11-22).
-    uint16 internal constant MAX_COST_BPS_TO_TRON = 300;
+    /// @dev Into TRON Across charges a flat ~6.2 USDT (quoted 2026-11-25 from BNB Chain: 30 USDT ->
+    ///      23.8, 100 -> 93.8), which {MAX_FLAT_COST_TO_TRON} covers, so the share only has to bound
+    ///      what a bad quote could keep on a large transfer: 1% (chosen 2026-11-25; 3% before the
+    ///      flat cost). An adapter before 1.2.2 reads no flat cost, so through one 1% refuses
+    ///      anything under ~620 USDT.
+    uint16 internal constant MAX_COST_BPS_TO_TRON = 100;
+    /// @dev ...and a flat 8 USDT on top (in TRON USDT's 6 decimals), so a 10 or 100 USDT transfer
+    ///      can go: Across's ~6.2 USDT is per transfer, not per amount. Only protocol-store's Across
+    ///      adapter from 1.2.2 reads it (capped there at 10 USDT); older ones ignore those bits.
+    uint64 internal constant MAX_FLAT_COST_TO_TRON = 8e6;
     uint256 internal constant TRON_CHAIN_ID = 728126428;
     /// @dev TRON USDT, TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t: the 20 bytes behind the T… address.
     address internal constant TRON_USDT = 0xa614f803B6FD780986A42c78Ec9c7f77e6DeD13C;
     uint256 internal constant KIND_USDT = 2;
+    /// @dev The guard key that marks a chain EVM (value 1) for the vault's every-EVM-chain whitelisted
+    ///      recipients: keccak256(abi.encode(EVM_CHAIN_KEY, chainId)), as the vault (1.2.1 on) reads
+    ///      it. Every chain in {CHAINS} is EVM; TRON and Solana are never marked.
+    bytes32 internal constant EVM_CHAIN_KEY = keccak256("bitty.chain.evm");
 
     uint256 internal constant N_CHAINS = 5;
     uint256 internal constant N_KINDS = 3;
@@ -111,7 +122,18 @@ contract AcrossRoutes is DeployScript {
     }
 
     function packRoute(address outputToken, uint8 outputDecimals, uint16 maxCostBps) public pure returns (uint256) {
-        return uint256(uint160(outputToken)) | (uint256(outputDecimals) << 160) | (uint256(maxCostBps) << 168);
+        return packRoute(outputToken, outputDecimals, maxCostBps, 0);
+    }
+
+    /// @dev Bits 184-247: a flat cost on top of the basis points, in the output token's smallest
+    ///      units, as protocol-store's AcrossBridgeProtocol (1.2.2 on) packs and reads it.
+    function packRoute(address outputToken, uint8 outputDecimals, uint16 maxCostBps, uint64 maxFlatCost)
+        public
+        pure
+        returns (uint256)
+    {
+        return uint256(uint160(outputToken)) | (uint256(outputDecimals) << 160) | (uint256(maxCostBps) << 168)
+            | (uint256(maxFlatCost) << 184);
     }
 
     function deploy() public override {
@@ -165,12 +187,21 @@ contract AcrossRoutes is DeployScript {
         if (usdt.token != address(0)) {
             routes++;
             bytes32 key = routeKey(usdt.token, TRON_CHAIN_ID);
-            uint256 value = packRoute(TRON_USDT, 6, MAX_COST_BPS_TO_TRON);
+            uint256 value = packRoute(TRON_USDT, 6, MAX_COST_BPS_TO_TRON, MAX_FLAT_COST_TO_TRON);
             if (guard.getUint(key) != value) {
                 guard.setUint(key, value);
                 console2.log(string.concat("route ", usdt.key, " -> USDT on TRON"), TRON_CHAIN_ID);
             }
         }
         console2.log("routes from this chain:", routes);
+
+        // Every chain here is EVM, this one included, so a vault's every-EVM-chain recipient may be
+        // bridged to any of them. Anything but 1 is rewritten, so a wrong value is fixed too.
+        for (uint256 c = 0; c < N_CHAINS; c++) {
+            bytes32 key = keccak256(abi.encode(EVM_CHAIN_KEY, CHAINS[c]));
+            if (guard.getUint(key) == 1) continue;
+            guard.setUint(key, 1);
+            console2.log("EVM chain marked:", CHAINS[c]);
+        }
     }
 }
